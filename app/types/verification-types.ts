@@ -54,4 +54,30 @@ export interface DashboardData {
     tarimasTotalesEstimadas: number;
     estado: string;
     tiempoTranscurridoMinutos: number;
+    cliente : "BIOFLEX" | "DESTINY" | "QUALITY";
+}
+
+export interface DestinyEtiquetaData {
+  id: number; // -> Se usará para POST: productoId
+  area: string;
+  claveProducto: string;
+  nombreProducto: string;
+  orden: number; // -> Se usará para POST: lote
+  printCard: string | null; // -> Se usará para POST
+  claveUnidad: string; // -> Corresponde a 'unidadOrden' (BAGS)
+  piezas: number; // -> Cantidad de la orden
+  otSispro: string;
+  // Objeto anidado
+  prodEtiquetasDestiny: {
+    itemNo: string;
+    inventoryLot: string;
+    shippingUnitID: string;
+    uom: string; // -> Corresponde a 'qtyUomEtiqueta' (BAGS)
+    qtyUOM: string; // -> Piezas por caja (string: "1000")
+  };
+}
+
+export interface DestinyConsolidatedData {
+    etiqueta: DestinyEtiquetaData;
+    // Destiny no requiere GETs 2 y 3 adicionales, los datos vienen en el payload.
 }

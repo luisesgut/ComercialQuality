@@ -13,8 +13,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, ArrowLeft, QrCode, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Upload, CheckSquare } from 'lucide-react';
 
-// ✅ CORRECCIÓN DE RUTA: Usamos el alias para importar el modal
-import { VerificationScanModal } from '@/components/VerificationScanModal'; 
+// ✅ MODALES DE ESCANEO: Importamos ambos de forma absoluta
+import { VerificationScanModal } from '@/components/VerificationScanModal'; // Modal Bioflex
+import { VerificationScanModalDestiny } from '@/components/VerificationScanModalDestiny'; // Modal Destiny
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -70,6 +71,27 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
     }, [verificationId]);
     
+    
+    // ----------------------------------------------------
+    // LÓGICA DE INFERENCIA DEL TIPO DE MODAL
+    // ----------------------------------------------------
+
+    const getVerificationType = (): "BIOFLEX" | "DESTINY" => {
+        if (!dashboardData) return "BIOFLEX"; // Fallback seguro
+
+        // Preferimos el campo de cliente que viene directo del backend
+        if (dashboardData.cliente === "DESTINY") return "DESTINY";
+        if (dashboardData.cliente === "BIOFLEX") return "BIOFLEX";
+
+        // Fallback: inferencia por texto cuando no viene el cliente (compatibilidad)
+        const productInfoUpper = dashboardData.productoInfo.toUpperCase();
+        if (productInfoUpper.includes("DESTINY") || productInfoUpper.includes("61953")) {
+            return "DESTINY";
+        }
+        return "BIOFLEX";
+    };
+
+
     // --- Renderizado de Estados ---
     
     if (isLoading) {
@@ -101,10 +123,14 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     
     if (!dashboardData) return null; // Debería ser atrapado por error o loading
 
-    // --- Renderizado del Dashboard (FASE 2) ---
-
-    // Aseguramos que el ID de la API sea un número para el modal
+    // --- Definición Condicional de Componente ---
     const verifiedIdNumber = dashboardData.verificacionId;
+    const currentVerificationType = getVerificationType();
+    
+    const ModalComponent = currentVerificationType === "DESTINY" 
+        ? VerificationScanModalDestiny 
+        : VerificationScanModal;
+
 
     const handleEvidenceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files ? Array.from(event.target.files) : [];
@@ -184,6 +210,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setFinishComentarios("");
             fetchDashboardData();
             setIsFinishModalOpen(false);
+            router.push("/dashboard/pendientes"); // Redirigir al finalizar
         } catch (err: any) {
             setFinishError(err.message || "Error de conexión al finalizar la verificación.");
         } finally {
@@ -268,7 +295,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 disabled={dashboardData.estado !== "EN PROCESO"} // Deshabilitar si no está activo
             >
                 <QrCode className="w-5 h-5 mr-2" />
-                Agregar Cajas Individuales
+                Agregar Cajas Individuales ({currentVerificationType})
             </Button>
 
             {/* Botón para subir evidencia */}
@@ -302,8 +329,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             
             {/* Modal de Escaneo */}
             {isScanModalOpen && (
-                <VerificationScanModal 
-                    verificacionId={verifiedIdNumber} // Pasamos el ID numérico
+                <ModalComponent // ✅ COMPONENTE MODAL SELECCIONADO CONDICIONALMENTE
+                    verificacionId={verifiedIdNumber}
                     onClose={() => setIsScanModalOpen(false)} 
                     onSuccess={() => { 
                         setIsScanModalOpen(false); 
@@ -512,6 +539,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 }
 
 export default function VerificationDetailPage({ params }: { params: Promise<{ id: string }> }) {
+    // Nota: El uso de 'use(params)' es correcto si esta página es un Server Component que debe leer una promesa.
+    // Si tienes problemas, cambia 'params: Promise<{ id: string }>' por 'params: { id: string }' y elimina el use().
     const resolvedParams = use(params)
     return <VerificationDetail verificationId={resolvedParams.id} />
 }

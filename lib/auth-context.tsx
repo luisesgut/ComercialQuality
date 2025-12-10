@@ -35,6 +35,13 @@ const DEMO_USERS: Array<User & { password: string }> = [
     password: "inspector123",
     role: "Inspector de Calidad",
   },
+  {
+    id: "2",
+    name: "Inspector",
+    email: "test@bioflex.com",
+    password: "test123",
+    role: "Inspector de Calidad",
+  },
 ]
 
 export function AuthProvider({ children }: { children: ReactNode }) {

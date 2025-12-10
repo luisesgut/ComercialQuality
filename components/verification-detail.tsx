@@ -24,6 +24,8 @@ import {
   AlertCircle,
 } from "lucide-react"
 
+
+
 interface VerificationDetailProps {
   verificationId: string
 }

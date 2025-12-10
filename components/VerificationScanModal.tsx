@@ -27,12 +27,12 @@ export function VerificationScanModal({ verificacionId, onClose, onSuccess }: Ve
   const [localError, setLocalError] = useState<string | null>(null);
 
   // Uso del hook de GETs
+  const verificationHook = useVerificationData();
   const {
     consolidatedData,
     isFetching,
     error: fetchError,
-    fetchData,
-  } = useVerificationData();
+  } = verificationHook as any;
 
   // Función para manejar la acción de escanear (Buscar datos O Registrar)
   const handleScanAction = async (e: React.FormEvent) => {
@@ -48,7 +48,7 @@ export function VerificationScanModal({ verificacionId, onClose, onSuccess }: Ve
             return;
         }
         // Llama a la función del hook para iniciar los 3 GETs
-        fetchData(trazabilityCode); 
+        (verificationHook as any).fetchData?.(trazabilityCode);
         return; 
     }
 
@@ -58,18 +58,14 @@ export function VerificationScanModal({ verificacionId, onClose, onSuccess }: Ve
     
     setIsSubmitting(true);
 
-    const { etiqueta, orden, valoresTecnicos } = consolidatedData as ConsolidateProductData;
-    const piezasPorCaja = Number((etiqueta as any).valor) || valoresTecnicos.piezasPorCaja;
+    const { etiqueta, valoresTecnicos } = consolidatedData as ConsolidateProductData;
+    const piezasPorCaja = Number((etiqueta as any).valor) || valoresTecnicos.piezasPorCaja || 0;
 
     // Construcción del BODY para el POST a /registrar-escaneo
     const postBody = {
       verificacionId: verificacionId,
-      trazabilidad: etiqueta.trazabilidad, 
-      qtyUomEtiqueta: etiqueta.uom, 
-      piezasPorCajaDb: piezasPorCaja,
-      cajasPorTarima: valoresTecnicos.cajasXtarima, 
-      cantidadOrden: orden.cantidad, 
-      unidadOrden: orden.claveUnidad, 
+      trazabilidad: etiqueta.trazabilidad,
+      qtyUomEtiqueta: String(piezasPorCaja),
     };
     
     // 

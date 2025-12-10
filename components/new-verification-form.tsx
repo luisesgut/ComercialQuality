@@ -1,197 +1,360 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
-// Hooks personalizados (Asegura que estas rutas existan)
+// Hooks personalizados
 import { useAuth } from "@/lib/auth-context" 
 import { useVerificationData } from "@/hooks/useVerificationData" 
+
+// Tipos
+import { ConsolidateProductData, DestinyEtiquetaData } from "@/app/types/verification-types" 
 
 // Componentes de UI
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 
 // Iconos
-import { ArrowLeft, Package, Calendar, Hash, FileText, CheckCircle, AlertCircle, Search, QrCode, Grid } from "lucide-react"
+import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash } from "lucide-react"
 
-// Tipos (Solo se necesitan en el hook, pero se mantienen importados si se usan en el componente principal)
-// Aunque eliminamos 'ProductData' ya que el hook devuelve 'ConsolidateProductData'
-// Ya no necesitamos definir ProductData aquí
-// import {
-//   EtiquetaData,
-//   OrdenData,
-//   ValoresTecnicosData,
-//   ConsolidateProductData
-// } from "@/app/types/verification-types" 
-
+// URL Base de la API
+const API_BASE_URL = "http://172.16.10.31/api";
 
 export function NewVerificationForm() {
   const router = useRouter()
-  // Asumo que 'useAuth' existe y proporciona el objeto 'user' para 'validadores'
   const { user } = useAuth() 
 
-  // --- USO DEL HOOK PERSONALIZADO PARA LOS GETS ---
+  // --- USO DEL HOOK UNIFICADO ---
   const { 
       consolidatedData, 
       isFetching, 
-      error: fetchError, // Renombrado para evitar conflicto con el estado de error local
-      fetchData 
+      error: fetchError, 
+      fetchByBioflex,
+      fetchByDestiny,
+      resetData,
   } = useVerificationData();
   
   // --- ESTADOS LOCALES DE FLUJO ---
   const [trazabilityCode, setTrazabilityCode] = useState("")
   const [verificationStarted, setVerificationStarted] = useState(false); // FASE 2: Inputs Manuales
   const [mode, setMode] = useState<"bioflex" | "destiny" | "quality">("bioflex")
+  const [isScannerActive, setIsScannerActive] = useState(false)
+  const [scannerError, setScannerError] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const scannerStreamRef = useRef<MediaStream | null>(null)
+  const [isVideoReady, setIsVideoReady] = useState(false) // Nuevo estado
 
-  // El estado de 'isScanned' ahora depende de si se obtuvieron datos
-  const isDataAvailable = !!consolidatedData && !fetchError; 
   
+  // El estado de disponibilidad depende del objeto consolidado (sirve para ambos modos)
+  const isDataAvailable = !!consolidatedData && !fetchError;
+
   // --- ESTADOS DE LA FASE 2 (Inputs Manuales y POST) ---
   const [clienteInput, setClienteInput] = useState<string>('');
   const [tipoBolsaInput, setTipoBolsaInput] = useState<string>('');
   const [piezasPorWicketInput, setPiezasPorWicketInput] = useState<number | string>(''); 
-  const [isSubmitting, setIsSubmitting] = useState(false) // Para el POST
-  const [submitError, setSubmitError] = useState<string | null>(null) // Error del POST
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null) // Éxito del POST
+  const [isSubmitting, setIsSubmitting] = useState(false) 
+  const [submitError, setSubmitError] = useState<string | null>(null) 
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null) 
+  const [createdVerificationId, setCreatedVerificationId] = useState<number | null>(null)
+  const REDIRECT_DELAY_MS = 600
+  
+  // --- ESTADOS ESPECÍFICOS DE DESTINY (Inputs) ---
   const [destinyItemNo, setDestinyItemNo] = useState("")
   const [destinyInventoryLot, setDestinyInventoryLot] = useState("")
   const [destinyShippingUnitId, setDestinyShippingUnitId] = useState("")
+  
+  // --- ESTADOS ESPECÍFICOS DE QUALITY (Mock) ---
   const [qualityPO2, setQualityPO2] = useState("")
   const [qualityItemNumber, setQualityItemNumber] = useState("")
+  const scanLoopRef = useRef<number | null>(null)
 
   
   // ----------------------------------------------------
-  // 1. FUNCIÓN DE INICIO DE GETS (Reemplaza handleTrazabilitySubmit)
+  // 1. HANDLERS DE BÚSQUEDA (GET)
   // ----------------------------------------------------
+  
+  // Bioflex
   const handleTrazabilitySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!trazabilityCode) return;
-    
-    // Al iniciar una nueva búsqueda, reiniciamos la fase 2.
     setVerificationStarted(false); 
     setSubmitError(null);
-
-    fetchData(trazabilityCode); // Llama al hook para hacer los GETs
+    fetchByBioflex(trazabilityCode);
   }
 
-  const handleDestinySubmit = (e: React.FormEvent) => {
+  // Destiny
+  const handleDestinySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitError(null)
-    setSubmitSuccess(null)
+    setVerificationStarted(false);
 
     if (!destinyItemNo || !destinyInventoryLot || !destinyShippingUnitId) {
       setSubmitError("Complete ItemNo, InventoryLot y ShippingUnitId para Destiny.")
       return
     }
 
-    setSubmitSuccess(
-      `Datos Destiny listos: ItemNo ${destinyItemNo}, InventoryLot ${destinyInventoryLot}, ShippingUnitId ${destinyShippingUnitId}. Conectar con API Destiny.`,
-    )
+    // Usamos el hook unificado
+    await fetchByDestiny(destinyItemNo, destinyInventoryLot, destinyShippingUnitId);
   }
 
+  // Quality (Mock)
   const handleQualitySubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitError(null)
-    setSubmitSuccess(null)
+    setSubmitSuccess(
+      `Funcionalidad en desarrollo. Pronto se conectará el flujo de Quality (PO2 ${qualityPO2}, Item Number ${qualityItemNumber}).`,
+    )
+  }
 
-    if (!qualityPO2 || !qualityItemNumber) {
-      setSubmitError("Complete PO2 e Item Number para Quality.")
+  // ----------------------------------------------------
+  // Escáner QR simple usando BarcodeDetector (si está disponible)
+  // ----------------------------------------------------
+   const stopScanner = () => {
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current)
+      scanLoopRef.current = null
+    }
+    if (scannerStreamRef.current) {
+      scannerStreamRef.current.getTracks().forEach((t) => t.stop())
+      scannerStreamRef.current = null
+    }
+    setIsScannerActive(false)
+    setIsVideoReady(false)
+  }
+
+const startScanner = async () => {
+    setScannerError(null)
+    setIsVideoReady(false)
+    
+    // Verificación de soporte
+    const BarcodeDetectorRef: any = (window as any).BarcodeDetector
+    if (!BarcodeDetectorRef) {
+      setScannerError("Tu navegador no soporta la detección de códigos nativa. Usa Chrome en Android/Desktop.")
       return
     }
 
-    setSubmitSuccess(
-      `Datos Quality listos: PO2 ${qualityPO2}, Item Number ${qualityItemNumber}. Conectar con API Quality.`,
-    )
+    try {
+      // 1. Obtener el stream
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      })
+      
+      // 2. Guardar el stream en la referencia
+      scannerStreamRef.current = stream
+      
+      // 3. Activar el estado (esto provocará que aparezca el <video> en el DOM)
+      setIsScannerActive(true)
+
+    } catch (err: any) {
+      console.error("Error iniciando scanner:", err)
+      setScannerError(err?.message || "No se pudo acceder a la cámara.")
+      stopScanner()
+    }
   }
+
+  // Efecto para conectar el stream al video cuando el componente se renderiza
+  useEffect(() => {
+    // Si no está activo o no hay stream o no hay elemento de video, no hacemos nada
+    if (!isScannerActive || !scannerStreamRef.current || !videoRef.current) return;
+
+    const video = videoRef.current;
+    const stream = scannerStreamRef.current;
+    video.srcObject = stream;
+
+    // Lógica de reproducción y detección
+    const BarcodeDetectorRef: any = (window as any).BarcodeDetector;
+    const detector = new BarcodeDetectorRef({ formats: ["qr_code"] });
+
+    const onCanPlay = async () => {
+        try {
+            await video.play();
+            setIsVideoReady(true);
+            
+            // Iniciar loop de detección
+            const scanLoop = async () => {
+                // Verificamos que el scanner siga activo
+                if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
+
+                try {
+                    const barcodes = await detector.detect(video);
+                    if (barcodes.length > 0) {
+                        const qr = barcodes[0].rawValue;
+                        console.log("QR detectado:", qr);
+                        setTrazabilityCode(qr);
+                        stopScanner(); // Detenemos al encontrar uno
+                        return;
+                    }
+                } catch (err) {
+                    // Errores de detección puntuales se ignoran para no saturar
+                }
+                
+                // Siguiente frame
+                scanLoopRef.current = requestAnimationFrame(scanLoop);
+            };
+
+            scanLoopRef.current = requestAnimationFrame(scanLoop);
+
+        } catch (err) {
+            console.error("Error al reproducir video:", err);
+        }
+    };
+
+    video.addEventListener("canplay", onCanPlay, { once: true });
+
+    // Cleanup local del efecto (por si el usuario desmonta rápido)
+    return () => {
+        video.removeEventListener("canplay", onCanPlay);
+        if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
+    };
+
+  }, [isScannerActive]); // Dependencia: se ejecuta cuando activas el scanner
+  useEffect(() => {
+    return () => stopScanner()
+  }, [])
 
 
   // ----------------------------------------------------
   // 2. FUNCIÓN POST DE INICIO DE VERIFICACIÓN (FASE 2)
   // ----------------------------------------------------
   const handleStartVerificationSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
+    e.preventDefault();
 
-      if (!consolidatedData) return; // Seguridad
-      
-      // Validar Inputs Manuales
-      if (!clienteInput || !tipoBolsaInput || Number(piezasPorWicketInput) <= 0) {
-          setSubmitError("Por favor, complete todos los campos manuales requeridos.");
-          return;
-      }
+    if (!consolidatedData) return;
 
-      setIsSubmitting(true);
-      setSubmitError(null);
+    // Extraemos datos del hook (ahora sirve para ambos modos)
+    const { etiqueta, orden, valoresTecnicos } = consolidatedData;
 
-      const { etiqueta, orden, valoresTecnicos } = consolidatedData;
-      const piezasPorCaja = Number((etiqueta as any).valor) || valoresTecnicos.piezasPorCaja;
+    let postDataSpecific: any = {};
+    
+    // Lógica de Negocio Diferenciada
+    if (mode === "bioflex") {
+        // Lógica de Bioflex: x10
+        const piezasPorCajaBioflex = (valoresTecnicos?.piezasPorCaja || 0) * 10; 
+        
+        postDataSpecific = {
+            cantidadOrden: orden?.cantidad,
+            unidadOrden: orden?.unidad, // "Millares"
+            piezasPorCaja: piezasPorCajaBioflex, 
+            cajasPorTarima: valoresTecnicos?.cajasXtarima,
+            wicketsPorCaja: valoresTecnicos?.wicketPorCaja,
+            perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
+        };
 
-      // --- CONSTRUCCIÓN DEL BODY DEL POST ---
-      const postBody = {
-          productoId: etiqueta.id,
-          lote: String(etiqueta.orden), 
-          cliente: clienteInput, 
-          validadores: user?.name || "USUARIO DESCONOCIDO", 
-          printCard: etiqueta.printCard || "",
-          cantidadOrden: orden.cantidad,
-          unidadOrden: orden.claveUnidad,
-          piezasPorCaja: piezasPorCaja, 
-          cajasPorTarima: valoresTecnicos.cajasXtarima,
-          tipoBolsa: tipoBolsaInput, 
-          wicketsPorCaja: valoresTecnicos.wicketPorCaja,
-          piezasPorWicket: Number(piezasPorWicketInput), 
-          perforaciones: String(valoresTecnicos.cantPerforaciones),
-      };
+    } else if (mode === "destiny") {
+        // Para Destiny:
+        // - productoId: etiqueta.id (4389)
+        // - lote: etiqueta.orden (28596)
+        // - printCard: etiqueta.printCard ("E-4814-A_R-1")
+        // - cantidadOrden: orden.cantidad (500)
+        // - unidadOrden: orden.unidad ("Millares")
+        // - piezasPorCaja: etiqueta.prodEtiquetasDestiny.qtyUOM (1000)
+        // - cajasPorTarima: valoresTecnicos.cajasXtarima (30)
+        // - wicketsPorCaja: valoresTecnicos.wicketPorCaja (6)
+        // - perforaciones: valoresTecnicos.cantPerforaciones (4)
+        
+        const destLabel = etiqueta as unknown as DestinyEtiquetaData;
+        const piezasPorCajaDestiny = Number(destLabel.prodEtiquetasDestiny?.qtyUOM || 0);
+        
+        postDataSpecific = {
+            cantidadOrden: orden?.cantidad, // 500
+            unidadOrden: orden?.unidad, // "Millares"
+            piezasPorCaja: piezasPorCajaDestiny, // 1000
+            cajasPorTarima: valoresTecnicos?.cajasXtarima || 0, // 30
+            wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0, // 6
+            perforaciones: String(valoresTecnicos?.cantPerforaciones || ""), // "4"
+        };
+    }
+    
+    // 2. Validar Inputs Manuales (compartidos)
+    if (!clienteInput || !tipoBolsaInput || Number(piezasPorWicketInput) <= 0) {
+        setSubmitError("Por favor, complete todos los campos manuales requeridos.");
+        return;
+    }
 
-      try {
-          const urlPost = `http://172.16.10.31/api/Verificacion/iniciar`;
-          const response = await fetch(urlPost, {
-              method: 'POST',
-              headers: {
-                  'accept': '*/*',
-                  'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(postBody),
-          });
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-          if (response.ok) {
-              const result = await response.json(); 
-              setSubmitSuccess(`Verificación ${result.id} iniciada. Redirigiendo...`);
-              // Aquí debe ir la redirección al siguiente paso (puntos de control)
-              // setTimeout(() => router.push(`/verificacion/${result.id}`), 1500); 
+    // --- 3. CONSTRUCCIÓN DEL BODY FINAL ---
+    const finalPostBody = {
+        productoId: etiqueta.id || 0, // ID de la etiqueta (4389 para Destiny)
+        lote: String(etiqueta.orden), // El lote es el campo "orden" (28596 para Destiny)
+        cliente: clienteInput, 
+        validadores: user?.name || "USUARIO DESCONOCIDO", 
+        printCard: etiqueta.printCard || "", // "E-4814-A_R-1"
+        tipoBolsa: tipoBolsaInput, 
+        piezasPorWicket: Number(piezasPorWicketInput), 
+        ...postDataSpecific 
+    };
 
-          } else {
+    try {
+        const urlPost = `${API_BASE_URL}/Verificacion/iniciar`;
+        const response = await fetch(urlPost, {
+            method: 'POST',
+            headers: {
+                'accept': '*/*',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(finalPostBody),
+        });
+
+        if (response.ok) {
+            const result = await response.json(); 
+            setSubmitSuccess(`Verificación ${result.id} iniciada. Redirigiendo...`);
+            setCreatedVerificationId(result.id);
+            setTimeout(() => router.push(`/dashboard/verificacion/${result.id}`), REDIRECT_DELAY_MS);
+
+        } else {
+            let detail = "Error al iniciar la verificación en el servidor.";
+            try {
               const errorData = await response.json();
-              throw new Error(errorData.detail || "Error al iniciar la verificación en el servidor.");
-          }
-      } catch (err: any) {
-          setSubmitError(err.message || "Error de conexión desconocido.");
-      } finally {
-          setIsSubmitting(false);
-      }
-  };
-
+              detail = errorData.detail || detail;
+            } catch {
+              // ignore parse error
+            }
+            throw new Error(detail);
+        }
+    } catch (err: any) {
+        setSubmitError(err.message || "Error de conexión desconocido.");
+    } finally {
+        setIsSubmitting(false);
+    }
+};
 
   // ----------------------------------------------------
-  // --- RENDERING CONDICIONAL ---
+  // --- RENDERING CONDICIONAL (UI) ---
   // ----------------------------------------------------
 
   // Si hay un éxito de POST, muestra la pantalla final
   if (submitSuccess) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Card className="border-0 shadow-xl bg-card max-w-md w-full text-center">
-          <CardContent className="pt-8 pb-8">
-            <div className="w-20 h-20 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-10 h-10 text-success" />
-            </div>
-            <h3 className="text-xl font-semibold text-card-foreground mb-2">Verificación Iniciada</h3>
-            <p className="text-muted-foreground">{submitSuccess}</p>
-            <Button className="mt-4" onClick={() => router.push("/dashboard/pendientes")}>
-                Ir a Pendientes
+        <Card className="max-w-lg w-full border-0 shadow-lg bg-card text-center space-y-4 p-6">
+          <CardHeader>
+            <CardTitle className="text-2xl text-primary">¡Verificación creada!</CardTitle>
+            <CardDescription>{submitSuccess}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              className="w-full"
+              onClick={() => {
+                if (createdVerificationId) {
+                  router.push(`/dashboard/verificacion/${createdVerificationId}`);
+                } else {
+                  router.push("/dashboard/pendientes");
+                }
+              }}
+            >
+              Ir al detalle
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => router.push("/dashboard/pendientes")}>
+              Ver pendientes
             </Button>
           </CardContent>
         </Card>
@@ -199,13 +362,27 @@ export function NewVerificationForm() {
     );
   }
 
-  // --- FASE 2: Inputs Manuales y POST (Si ya hay datos y el usuario inició) ---
-  if (mode === "bioflex" && isDataAvailable && consolidatedData && verificationStarted) {
-    const { etiqueta } = consolidatedData;
+  // --- FASE 2: Inputs Manuales y POST (Compartida) ---
+  // Usamos consolidatedData para ambos modos
+  if (isDataAvailable && consolidatedData && verificationStarted) {
+    const { etiqueta, valoresTecnicos } = consolidatedData;
+    
+    // Calcular sugerencia de piezas por wicket para Destiny
+    let piezasPorWicketSuggestion = "";
+    if (mode === "destiny" && valoresTecnicos) {
+        const destLabel = etiqueta as unknown as DestinyEtiquetaData;
+        const qtyUOM = Number(destLabel.prodEtiquetasDestiny?.qtyUOM || 0);
+        const wicketPorCaja = valoresTecnicos.wicketPorCaja || 1;
+        
+        if (qtyUOM > 0 && wicketPorCaja > 0) {
+            const calculado = qtyUOM / wicketPorCaja;
+            piezasPorWicketSuggestion = ` (Sugerido: ${calculado.toFixed(2)})`;
+        }
+    }
 
     return (
         <div className="max-w-2xl mx-auto space-y-6">
-            <h3 className="text-2xl font-bold text-primary">Detalles de Inicio</h3>
+            <h3 className="text-2xl font-bold text-primary">Detalles de Inicio ({mode.toUpperCase()})</h3>
             <p className="text-muted-foreground">Complete los campos manuales para iniciar formalmente la verificación de **{etiqueta.nombreProducto}**.</p>
             
             {(submitError || fetchError) && (
@@ -216,56 +393,29 @@ export function NewVerificationForm() {
             )}
 
             <form onSubmit={handleStartVerificationSubmit} className="space-y-6">
-                
-                {/* Campo 1: Cliente (Manual, Combobox) */}
                 <div className="space-y-2">
                     <Label htmlFor="cliente">Cliente *</Label>
-                    <Input 
-                        id="cliente"
-                        placeholder="Ingrese o seleccione el Cliente" 
-                        value={clienteInput}
-                        onChange={(e) => setClienteInput(e.target.value)}
-                        disabled={isSubmitting}
-                    />
+                    <Input id="cliente" placeholder="Ingrese o seleccione el Cliente" value={clienteInput}
+                        onChange={(e) => setClienteInput(e.target.value)} disabled={isSubmitting}/>
                 </div>
-                
-                {/* Campo 2: Tipo de Bolsa (Manual, Combobox) */}
                 <div className="space-y-2">
                     <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
-                    <Input 
-                        id="tipoBolsa"
-                        placeholder="Ingrese o seleccione el Tipo de Bolsa" 
-                        value={tipoBolsaInput}
-                        onChange={(e) => setTipoBolsaInput(e.target.value)}
-                        disabled={isSubmitting}
-                    />
+                    <Input id="tipoBolsa" placeholder="Ingrese o seleccione el Tipo de Bolsa" value={tipoBolsaInput}
+                        onChange={(e) => setTipoBolsaInput(e.target.value)} disabled={isSubmitting}/>
                 </div>
-
-                {/* Campo 3: Piezas por Wicket (Manual) */}
                 <div className="space-y-2">
-                    <Label htmlFor="piezasPorWicket">Piezas por Wicket *</Label>
-                    <Input 
-                        id="piezasPorWicket"
-                        type="number" 
-                        placeholder="Ingrese el número de piezas" 
-                        value={piezasPorWicketInput}
-                        onChange={(e) => setPiezasPorWicketInput(e.target.value)}
-                        disabled={isSubmitting}
-                        min="1"
-                    />
+                    <Label htmlFor="piezasPorWicket">Piezas por Wicket *{piezasPorWicketSuggestion}</Label>
+                    <Input id="piezasPorWicket" type="number" placeholder="Ingrese el número de piezas" value={piezasPorWicketInput}
+                        onChange={(e) => setPiezasPorWicketInput(e.target.value)} disabled={isSubmitting} min="1" step="0.01"/>
                 </div>
                 
                 <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
                     {isSubmitting ? "Iniciando..." : "Confirmar e Iniciar Verificación"}
                 </Button>
                 <Button 
-                    type="button" 
-                    variant="outline" 
-                    className="w-full" 
-                    onClick={() => setVerificationStarted(false)}
-                    disabled={isSubmitting}
-                >
-                    Volver a Datos de Trazabilidad
+                    type="button" variant="outline" className="w-full" onClick={() => setVerificationStarted(false)}
+                    disabled={isSubmitting}>
+                    Volver a Datos de {mode === "bioflex" ? "Trazabilidad" : "Destiny"}
                 </Button>
             </form>
         </div>
@@ -273,25 +423,42 @@ export function NewVerificationForm() {
   }
 
 
-  // --- FASE 1: Display de Datos (Si hay datos pero no ha iniciado la verificación) ---
-  if (mode === "bioflex" && isDataAvailable && consolidatedData && !verificationStarted) {
+  // --- FASE 1: Display de Datos (Bioflex o Destiny) ---
+  if (isDataAvailable && consolidatedData && !verificationStarted) {
+    
+    const isBioflex = mode === "bioflex";
     const { etiqueta, orden, valoresTecnicos } = consolidatedData;
-    const piezasPorCajaDisplay = Number((etiqueta as any).valor) || valoresTecnicos.piezasPorCaja;
+    
+    // Type guard para detectar si la etiqueta tiene la forma DestinyEtiquetaData
+    const isDestinyEtiqueta = (e: any): e is DestinyEtiquetaData => {
+      return !!e && typeof e === "object" && ("prodEtiquetasDestiny" in e || "piezas" in e || "claveUnidad" in e);
+    };
+
+    // Display values (Calculados según modo para la vista previa)
+    const piezasPorCajaDisplay = isBioflex
+        ? ((etiqueta as any).valor || valoresTecnicos?.piezasPorCaja)
+        : (isDestinyEtiqueta(etiqueta) ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-") : "-");
+    
+    const qtyOrden = isBioflex
+        ? `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`
+        : `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`;
+
+    const secondaryHeader = isBioflex
+      ? `Trazabilidad: ${(etiqueta as any).trazabilidad}`
+      : `Shipping ID: ${etiqueta.orden}`;
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
-        {/* Header con botón de retroceso */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => { setTrazabilityCode(''); fetchData('') }} disabled={isFetching || isSubmitting}>
+          <Button variant="ghost" size="icon" onClick={resetData} disabled={isFetching || isSubmitting}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h2 className="text-2xl font-bold text-foreground">Datos Obtenidos</h2>
+            <h2 className="text-2xl font-bold text-foreground">Datos Obtenidos ({mode.toUpperCase()})</h2>
             <p className="text-muted-foreground">Confirme la información para iniciar la verificación.</p>
           </div>
         </div>
 
-        {/* Tarjeta de Datos */}
         <Card className="border-0 shadow-lg bg-card">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -302,7 +469,7 @@ export function NewVerificationForm() {
             </div>
             <CardDescription className="flex items-center gap-2">
                 <Hash className="w-4 h-4" />
-                Trazabilidad Escaneada: **{etiqueta.trazabilidad}**
+                {secondaryHeader}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
@@ -315,30 +482,21 @@ export function NewVerificationForm() {
                 <p className="font-semibold text-lg">{etiqueta.orden}</p>
             </div>
             <div className="col-span-2 space-y-1 bg-primary/10 p-3 rounded-lg">
-                <Label className="text-primary text-xs uppercase">Unidad a Verificar</Label>
-                <p className="font-bold text-xl">
-                    {etiqueta.uom}
-                </p>
-                <p className="text-sm text-primary/70">
-                    Cantidad Ordenada: **{orden.cantidad} {orden.unidad}**
-                </p>
+                <Label className="text-primary text-xs uppercase">Cantidad Ordenada</Label>
+                <p className="font-bold text-xl">{qtyOrden}</p>
             </div>
             <div className="space-y-1">
                 <Label className="text-muted-foreground text-xs uppercase">Print Card</Label>
                 <p className="font-semibold">{etiqueta.printCard || "N/A"}</p>
             </div>
+          
             <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase">Máquina</Label>
-                <p className="font-semibold">{etiqueta.maquina}</p>
-            </div>
-            <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase">Piezas por Caja</Label>
+                <Label className="text-muted-foreground text-xs uppercase">Piezas por Caja (QtyUOM)</Label>
                 <p className="font-semibold">{piezasPorCajaDisplay}</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Botón para Iniciar Verificación */}
         <div className="pt-4">
           <Button 
             onClick={() => setVerificationStarted(true)} 
@@ -352,139 +510,104 @@ export function NewVerificationForm() {
     );
   }
 
-  // --- FLUJOS DESTINY Y QUALITY ---
+  // --- FLUJOS DESTINY Y QUALITY (Inputs de Búsqueda) ---
   if (mode === "destiny") {
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setMode("bioflex")
-              setSubmitError(null)
-              setSubmitSuccess(null)
-            }}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">Destiny</h2>
-            <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Destiny.</p>
-          </div>
+        <div className="max-w-2xl mx-auto space-y-6">
+            <div className="flex items-center gap-4">
+            <Button
+                variant="ghost" size="icon" onClick={() => setMode("bioflex")}
+            >
+                <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+                <h2 className="text-2xl font-bold text-foreground">Destiny</h2>
+                <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Destiny.</p>
+            </div>
+            </div>
+
+            {(submitError || fetchError) && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                <AlertCircle className="w-4 h-4" />
+                {submitError || fetchError}
+            </div>
+            )}
+
+            <Card className="border-0 shadow-lg bg-card">
+            <CardHeader>
+                <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
+                <CardDescription>ItemNo, InventoryLot y ShippingUnitId</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={handleDestinySubmit} className="space-y-4">
+                <div className="space-y-2">
+                    <Label htmlFor="destiny-item">ItemNo</Label>
+                    <Input id="destiny-item" value={destinyItemNo} onChange={(e) => setDestinyItemNo(e.target.value)} placeholder="Ej. 61953-11" disabled={isFetching} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="destiny-lot">InventoryLot</Label>
+                    <Input id="destiny-lot" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="destiny-shipping">ShippingUnitId</Label>
+                    <Input id="destiny-shipping" value={destinyShippingUnitId} onChange={(e) => setDestinyShippingUnitId(e.target.value)} placeholder="Ej. 28596" disabled={isFetching} />
+                </div>
+                <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
+                    {isFetching ? "Buscando..." : "Buscar datos Destiny"}
+                </Button>
+                </form>
+            </CardContent>
+            </Card>
         </div>
-
-        {(submitError || fetchError) && (
-          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-            <AlertCircle className="w-4 h-4" />
-            {submitError || fetchError}
-          </div>
-        )}
-
-        <Card className="border-0 shadow-lg bg-card">
-          <CardHeader>
-            <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
-            <CardDescription>ItemNo, InventoryLot y ShippingUnitId</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleDestinySubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="destiny-item">ItemNo</Label>
-                <Input
-                  id="destiny-item"
-                  value={destinyItemNo}
-                  onChange={(e) => setDestinyItemNo(e.target.value)}
-                  placeholder="Ej. DST-001"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="destiny-lot">InventoryLot</Label>
-                <Input
-                  id="destiny-lot"
-                  value={destinyInventoryLot}
-                  onChange={(e) => setDestinyInventoryLot(e.target.value)}
-                  placeholder="Ej. LOT-2024-001"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="destiny-shipping">ShippingUnitId</Label>
-                <Input
-                  id="destiny-shipping"
-                  value={destinyShippingUnitId}
-                  onChange={(e) => setDestinyShippingUnitId(e.target.value)}
-                  placeholder="Ej. SHP-123"
-                />
-              </div>
-              <Button type="submit" className="w-full h-12 text-lg">
-                Buscar datos Destiny
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
     )
   }
 
   if (mode === "quality") {
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setMode("bioflex")
-              setSubmitError(null)
-              setSubmitSuccess(null)
-            }}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">Quality</h2>
-            <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Quality.</p>
-          </div>
+        <div className="max-w-2xl mx-auto space-y-6">
+            <div className="flex items-center gap-4">
+            <Button
+                variant="ghost" size="icon" onClick={() => setMode("bioflex")}
+            >
+                <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+                <h2 className="text-2xl font-bold text-foreground">Quality</h2>
+                <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Quality.</p>
+            </div>
+            </div>
+
+            {(submitError || fetchError) && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                <AlertCircle className="w-4 h-4" />
+                {submitError || fetchError}
+            </div>
+            )}
+
+            <Card className="border-0 shadow-lg bg-card">
+            <CardHeader>
+                <CardTitle className="text-xl text-card-foreground">Datos Quality</CardTitle>
+                <CardDescription>Funcionalidad en desarrollo. El ingreso de datos está deshabilitado.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+                  <fieldset disabled className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="quality-po2">PO2</Label>
+                      <Input id="quality-po2" value={qualityPO2} placeholder="Próximamente" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="quality-item">Item Number</Label>
+                      <Input id="quality-item" value={qualityItemNumber} placeholder="Próximamente" />
+                    </div>
+                    <Button type="button" className="w-full h-12 text-lg">
+                      Próximamente disponible
+                    </Button>
+                  </fieldset>
+                </form>
+            </CardContent>
+            </Card>
         </div>
-
-        {(submitError || fetchError) && (
-          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-            <AlertCircle className="w-4 h-4" />
-            {submitError || fetchError}
-          </div>
-        )}
-
-        <Card className="border-0 shadow-lg bg-card">
-          <CardHeader>
-            <CardTitle className="text-xl text-card-foreground">Datos Quality</CardTitle>
-            <CardDescription>PO2 e Item Number</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleQualitySubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="quality-po2">PO2</Label>
-                <Input
-                  id="quality-po2"
-                  value={qualityPO2}
-                  onChange={(e) => setQualityPO2(e.target.value)}
-                  placeholder="Ej. PO-12345"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="quality-item">Item Number</Label>
-                <Input
-                  id="quality-item"
-                  value={qualityItemNumber}
-                  onChange={(e) => setQualityItemNumber(e.target.value)}
-                  placeholder="Ej. ITM-789"
-                />
-              </div>
-              <Button type="submit" className="w-full h-12 text-lg">
-                Buscar datos Quality
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
     )
   }
 
@@ -518,9 +641,12 @@ export function NewVerificationForm() {
               onClick={() => {
                 setMode("bioflex")
                 setSubmitSuccess(null)
+                setCreatedVerificationId(null)
                 setSubmitError(null)
                 setVerificationStarted(false)
                 setTrazabilityCode("")
+                stopScanner()
+                resetData(); // Limpia datos al cambiar
               }}
               className="w-full"
             >
@@ -532,8 +658,11 @@ export function NewVerificationForm() {
               onClick={() => {
                 setMode("destiny")
                 setSubmitSuccess(null)
+                setCreatedVerificationId(null)
                 setSubmitError(null)
                 setVerificationStarted(false)
+                stopScanner()
+                resetData(); // Limpia datos al cambiar
               }}
               className="w-full"
             >
@@ -545,8 +674,11 @@ export function NewVerificationForm() {
               onClick={() => {
                 setMode("quality")
                 setSubmitSuccess(null)
+                setCreatedVerificationId(null)
                 setSubmitError(null)
                 setVerificationStarted(false)
+                stopScanner()
+                resetData();
               }}
               className="w-full"
             >
@@ -563,7 +695,7 @@ export function NewVerificationForm() {
         </div>
       )}
 
-      {mode === "bioflex" && (
+     {mode === "bioflex" && !isDataAvailable && (
         <Card className="border-0 shadow-xl bg-card">
           <CardHeader className="text-center">
             <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">
@@ -588,6 +720,47 @@ export function NewVerificationForm() {
                     disabled={isFetching}
                     required
                   />
+                </div>
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (isScannerActive) {
+                        stopScanner()
+                      } else {
+                        startScanner()
+                      }
+                    }}
+                    disabled={isFetching}
+                  >
+                    <QrCode className="w-5 h-5 mr-2" />
+                    {isScannerActive ? "Detener escaneo" : "Escanear QR con cámara"}
+                  </Button>
+                  {scannerError && (
+                    <p className="text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      {scannerError}
+                    </p>
+                  )}
+                  {isScannerActive && (
+                    <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
+                      <video
+                        ref={videoRef}
+                        className="w-full rounded-md aspect-video object-cover"
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{ backgroundColor: '#000' }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {isVideoReady 
+                          ? "Apunte al código QR para capturar la trazabilidad." 
+                          : "Cargando cámara..."}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
