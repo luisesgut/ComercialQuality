@@ -5,11 +5,11 @@ import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
 // Hooks personalizados
-import { useAuth } from "@/lib/auth-context" 
-import { useVerificationData } from "@/hooks/useVerificationData" 
+import { useAuth } from "@/lib/auth-context"
+import { useVerificationData } from "@/hooks/useVerificationData"
 
 // Tipos
-import { ConsolidateProductData, DestinyEtiquetaData } from "@/app/types/verification-types" 
+import { ConsolidateProductData, DestinyEtiquetaData } from "@/app/types/verification-types"
 
 // Componentes de UI
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,26 +19,26 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Iconos
-import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash } from "lucide-react"
+import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCircle } from "lucide-react"
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
 
 export function NewVerificationForm() {
   const router = useRouter()
-  const { user } = useAuth() 
+  const { user } = useAuth()
 
   // --- USO DEL HOOK UNIFICADO ---
-  const { 
-      consolidatedData, 
-      isFetching, 
-      error: fetchError, 
-      fetchByBioflex,
-      fetchByDestiny,
-      fetchByQuality,
-      resetData,
+  const {
+    consolidatedData,
+    isFetching,
+    error: fetchError,
+    fetchByBioflex,
+    fetchByDestiny,
+    fetchByQuality,
+    resetData,
   } = useVerificationData();
-  
+
   // --- ESTADOS LOCALES DE FLUJO ---
   const [trazabilityCode, setTrazabilityCode] = useState("")
   const [verificationStarted, setVerificationStarted] = useState(false); // FASE 2: Inputs Manuales
@@ -48,28 +48,31 @@ export function NewVerificationForm() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const scannerStreamRef = useRef<MediaStream | null>(null)
   const [isVideoReady, setIsVideoReady] = useState(false) // Nuevo estado
+  const [scanTarget, setScanTarget] = useState<"trazability" | "destinyItemNo" | "qualityLot" | "qualityItem" | null>(null)
+  const [scannerFormats, setScannerFormats] = useState<string[]>(["qr_code"])
 
-  
+
   // El estado de disponibilidad depende del objeto consolidado (sirve para ambos modos)
   const isDataAvailable = !!consolidatedData && !fetchError;
 
   // --- ESTADOS DE LA FASE 2 (Inputs Manuales y POST) ---
   const [clienteInput, setClienteInput] = useState<string>('');
   const [tipoBolsaInput, setTipoBolsaInput] = useState<string>('');
-  const [isSubmitting, setIsSubmitting] = useState(false) 
-  const [submitError, setSubmitError] = useState<string | null>(null) 
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null) 
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null)
   const [createdVerificationId, setCreatedVerificationId] = useState<number | null>(null)
   const [reopenModalOpen, setReopenModalOpen] = useState(false)
   const [reopenVerificationId, setReopenVerificationId] = useState<number | null>(null)
   const [reopenModalMessage, setReopenModalMessage] = useState<string>("")
   const REDIRECT_DELAY_MS = 600
-  
+  const [helpImage, setHelpImage] = useState<null | { title: string; src: string; alt: string }>(null)
+
   // --- ESTADOS ESPECÍFICOS DE DESTINY (Inputs) ---
   const [destinyItemNo, setDestinyItemNo] = useState("")
   const [destinyInventoryLot, setDestinyInventoryLot] = useState("")
   const [destinyShippingUnitId, setDestinyShippingUnitId] = useState("")
-  
+
   // --- ESTADOS ESPECÍFICOS DE QUALITY (Mock) ---
   const [qualityPO2, setQualityPO2] = useState("")
   const [qualityItemNumber, setQualityItemNumber] = useState("")
@@ -123,16 +126,36 @@ export function NewVerificationForm() {
     </div>
   ) : null;
 
-  
+  const helpModal = helpImage ? (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="text-lg font-bold">{helpImage.title}</h3>
+          <Button variant="ghost" size="icon" onClick={() => setHelpImage(null)}>
+            &times;
+          </Button>
+        </div>
+        <div className="flex justify-center">
+          <img
+            src={helpImage.src}
+            alt={helpImage.alt}
+            className="max-h-[70vh] w-auto rounded-md border"
+          />
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+
   // ----------------------------------------------------
   // 1. HANDLERS DE BÚSQUEDA (GET)
   // ----------------------------------------------------
-  
+
   // Bioflex
   const handleTrazabilitySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!trazabilityCode) return;
-    setVerificationStarted(false); 
+    setVerificationStarted(false);
     setSubmitError(null);
     fetchByBioflex(trazabilityCode);
   }
@@ -169,7 +192,7 @@ export function NewVerificationForm() {
   // ----------------------------------------------------
   // Escáner QR simple usando BarcodeDetector (si está disponible)
   // ----------------------------------------------------
-   const stopScanner = () => {
+  const stopScanner = () => {
     if (scanLoopRef.current) {
       cancelAnimationFrame(scanLoopRef.current)
       scanLoopRef.current = null
@@ -180,12 +203,16 @@ export function NewVerificationForm() {
     }
     setIsScannerActive(false)
     setIsVideoReady(false)
+    setScanTarget(null)
   }
 
-const startScanner = async () => {
+const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLot" | "qualityItem", formats: string[]) => {
     setScannerError(null)
     setIsVideoReady(false)
-    
+    if (isScannerActive) {
+      stopScanner()
+    }
+
     // Verificación de soporte
     const BarcodeDetectorRef: any = (window as any).BarcodeDetector
     if (!BarcodeDetectorRef) {
@@ -194,18 +221,31 @@ const startScanner = async () => {
     }
 
     try {
+      let supportedFormats = formats
+      if (typeof BarcodeDetectorRef.getSupportedFormats === "function") {
+        const availableFormats = await BarcodeDetectorRef.getSupportedFormats()
+        supportedFormats = formats.filter((format) => availableFormats.includes(format))
+      }
+      if (!supportedFormats.length) {
+        setScannerError("Tu navegador no soporta los formatos de código requeridos.")
+        return
+      }
+
+      setScanTarget(target)
+      setScannerFormats(supportedFormats)
+
       // 1. Obtener el stream
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
           facingMode: "environment",
           width: { ideal: 1280 },
           height: { ideal: 720 }
-        } 
+        }
       })
-      
+
       // 2. Guardar el stream en la referencia
       scannerStreamRef.current = stream
-      
+
       // 3. Activar el estado (esto provocará que aparezca el <video> en el DOM)
       setIsScannerActive(true)
 
@@ -227,51 +267,71 @@ const startScanner = async () => {
 
     // Lógica de reproducción y detección
     const BarcodeDetectorRef: any = (window as any).BarcodeDetector;
-    const detector = new BarcodeDetectorRef({ formats: ["qr_code"] });
+    const detector = new BarcodeDetectorRef({ formats: scannerFormats });
 
     const onCanPlay = async () => {
-        try {
-            await video.play();
-            setIsVideoReady(true);
-            
-            // Iniciar loop de detección
-            const scanLoop = async () => {
-                // Verificamos que el scanner siga activo
-                if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
+      try {
+        await video.play();
+        setIsVideoReady(true);
 
-                try {
-                    const barcodes = await detector.detect(video);
+        // Iniciar loop de detección
+        const scanLoop = async () => {
+          // Verificamos que el scanner siga activo
+          if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
+
+          try {
+            const barcodes = await detector.detect(video);
                     if (barcodes.length > 0) {
-                        const qr = barcodes[0].rawValue;
-                        console.log("QR detectado:", qr);
-                        setTrazabilityCode(qr);
-                        stopScanner(); // Detenemos al encontrar uno
-                        return;
+                        const codeValue = barcodes[0].rawValue;
+                        if (scanTarget === "destinyItemNo") {
+                          setDestinyItemNo(codeValue);
+                          stopScanner();
+                          return;
+                        }
+                        if (scanTarget === "qualityLot") {
+                          if (/^\d{6}$/.test(codeValue)) {
+                            setQualityPO2(codeValue);
+                            stopScanner();
+                            return;
+                          }
+                          setScannerError("QR inválido para Lot Number. Debe ser numérico de 6 dígitos.")
+                        } else if (scanTarget === "qualityItem") {
+                          if (/^P/i.test(codeValue)) {
+                            setQualityItemNumber(codeValue);
+                            stopScanner();
+                            return;
+                          }
+                          setScannerError("QR inválido para Item Number. Debe iniciar con P.")
+                        } else {
+                          setTrazabilityCode(codeValue);
+                          stopScanner();
+                          return;
+                        }
                     }
-                } catch (err) {
-                    // Errores de detección puntuales se ignoran para no saturar
-                }
-                
-                // Siguiente frame
-                scanLoopRef.current = requestAnimationFrame(scanLoop);
-            };
+          } catch (err) {
+            // Errores de detección puntuales se ignoran para no saturar
+          }
 
-            scanLoopRef.current = requestAnimationFrame(scanLoop);
+          // Siguiente frame
+          scanLoopRef.current = requestAnimationFrame(scanLoop);
+        };
 
-        } catch (err) {
-            console.error("Error al reproducir video:", err);
-        }
+        scanLoopRef.current = requestAnimationFrame(scanLoop);
+
+      } catch (err) {
+        console.error("Error al reproducir video:", err);
+      }
     };
 
     video.addEventListener("canplay", onCanPlay, { once: true });
 
     // Cleanup local del efecto (por si el usuario desmonta rápido)
     return () => {
-        video.removeEventListener("canplay", onCanPlay);
-        if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
+      video.removeEventListener("canplay", onCanPlay);
+      if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
     };
 
-  }, [isScannerActive]); // Dependencia: se ejecuta cuando activas el scanner
+  }, [isScannerActive, scanTarget, scannerFormats]); // Dependencia: se ejecuta cuando activas el scanner
   useEffect(() => {
     return () => stopScanner()
   }, [])
@@ -289,59 +349,59 @@ const startScanner = async () => {
     const { etiqueta, orden, valoresTecnicos } = consolidatedData;
 
     let postDataSpecific: any = {};
-    
+
     // Lógica de Negocio Diferenciada
     if (mode === "bioflex") {
-        // Lógica de Bioflex: x10
-        const piezasPorCajaBioflex = (valoresTecnicos?.piezasPorCaja || 0) * 10; 
-        
-        postDataSpecific = {
-            cantidadOrden: orden?.cantidad,
-            unidadOrden: orden?.unidad, // "Millares"
-            piezasPorCaja: piezasPorCajaBioflex, 
-            cajasPorTarima: valoresTecnicos?.cajasXtarima,
-            wicketsPorCaja: valoresTecnicos?.wicketPorCaja,
-            perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
-        };
+      // Lógica de Bioflex: x10
+      const piezasPorCajaBioflex = (valoresTecnicos?.piezasPorCaja || 0) * 10;
+
+      postDataSpecific = {
+        cantidadOrden: orden?.cantidad,
+        unidadOrden: orden?.unidad, // "Millares"
+        piezasPorCaja: piezasPorCajaBioflex,
+        cajasPorTarima: valoresTecnicos?.cajasXtarima,
+        wicketsPorCaja: valoresTecnicos?.wicketPorCaja,
+        perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
+      };
 
     } else if (mode === "destiny") {
-        // Para Destiny:
-        // - productoId: etiqueta.id (4389)
-        // - lote: etiqueta.orden (28596)
-        // - printCard: etiqueta.printCard ("E-4814-A_R-1")
-        // - cantidadOrden: orden.cantidad (500)
-        // - unidadOrden: orden.unidad ("Millares")
-        // - piezasPorCaja: etiqueta.prodEtiquetasDestiny.qtyUOM (1000)
-        // - cajasPorTarima: valoresTecnicos.cajasXtarima (30)
-        // - wicketsPorCaja: valoresTecnicos.wicketPorCaja (6)
-        // - perforaciones: valoresTecnicos.cantPerforaciones (4)
-        
-        const destLabel = etiqueta as unknown as DestinyEtiquetaData;
-        const piezasPorCajaDestiny = Number(destLabel.prodEtiquetasDestiny?.qtyUOM || 0);
-        
-        postDataSpecific = {
-            cantidadOrden: orden?.cantidad, // 500
-            unidadOrden: orden?.unidad, // "Millares"
-            piezasPorCaja: piezasPorCajaDestiny, // 1000
-            cajasPorTarima: valoresTecnicos?.cajasXtarima || 0, // 30
-            wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0, // 6
-            perforaciones: String(valoresTecnicos?.cantPerforaciones || ""), // "4"
-        };
+      // Para Destiny:
+      // - productoId: etiqueta.id (4389)
+      // - lote: etiqueta.orden (28596)
+      // - printCard: etiqueta.printCard ("E-4814-A_R-1")
+      // - cantidadOrden: orden.cantidad (500)
+      // - unidadOrden: orden.unidad ("Millares")
+      // - piezasPorCaja: etiqueta.prodEtiquetasDestiny.qtyUOM (1000)
+      // - cajasPorTarima: valoresTecnicos.cajasXtarima (30)
+      // - wicketsPorCaja: valoresTecnicos.wicketPorCaja (6)
+      // - perforaciones: valoresTecnicos.cantPerforaciones (4)
+
+      const destLabel = etiqueta as unknown as DestinyEtiquetaData;
+      const piezasPorCajaDestiny = Number(destLabel.prodEtiquetasDestiny?.qtyUOM || 0);
+
+      postDataSpecific = {
+        cantidadOrden: orden?.cantidad, // 500
+        unidadOrden: orden?.unidad, // "Millares"
+        piezasPorCaja: piezasPorCajaDestiny, // 1000
+        cajasPorTarima: valoresTecnicos?.cajasXtarima || 0, // 30
+        wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0, // 6
+        perforaciones: String(valoresTecnicos?.cantPerforaciones || ""), // "4"
+      };
     } else if (mode === "quality") {
-        postDataSpecific = {
-            cantidadOrden: orden?.cantidad,
-            unidadOrden: orden?.unidad,
-            piezasPorCaja: valoresTecnicos?.piezasPorCaja || 0,
-            cajasPorTarima: valoresTecnicos?.cajasXtarima || 0,
-            wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0,
-            perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
-        };
+      postDataSpecific = {
+        cantidadOrden: orden?.cantidad,
+        unidadOrden: orden?.unidad,
+        piezasPorCaja: valoresTecnicos?.piezasPorCaja || 0,
+        cajasPorTarima: valoresTecnicos?.cajasXtarima || 0,
+        wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0,
+        perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
+      };
     }
-    
+
     // 2. Validar Inputs Manuales (compartidos)
     if (!clienteInput || !tipoBolsaInput) {
-        setSubmitError("Por favor, complete todos los campos manuales requeridos.");
-        return;
+      setSubmitError("Por favor, complete todos los campos manuales requeridos.");
+      return;
     }
 
     setIsSubmitting(true);
@@ -353,98 +413,98 @@ const startScanner = async () => {
 
     // --- 3. CONSTRUCCIÓN DEL BODY FINAL ---
     const finalPostBody = {
-        productoId: etiqueta.id || 0, // ID de la etiqueta (4389 para Destiny)
-        lote: String(etiqueta.orden), // El lote es el campo "orden" (28596 para Destiny)
-        cliente: clienteInput, 
-        validadores: user?.name || "USUARIO DESCONOCIDO", 
-        printCard: etiqueta.printCard || "", // "E-4814-A_R-1"
-        tipoBolsa: tipoBolsaInput, 
-        piezasPorWicket: piezasPorWicketCalculated, 
-        ...postDataSpecific 
+      productoId: etiqueta.id || 0, // ID de la etiqueta (4389 para Destiny)
+      lote: String(etiqueta.orden), // El lote es el campo "orden" (28596 para Destiny)
+      cliente: clienteInput,
+      validadores: user?.name || "USUARIO DESCONOCIDO",
+      printCard: etiqueta.printCard || "", // "E-4814-A_R-1"
+      tipoBolsa: tipoBolsaInput,
+      piezasPorWicket: piezasPorWicketCalculated,
+      ...postDataSpecific
     };
 
     try {
-        const urlPost = `${API_BASE_URL}/Verificacion/iniciar`;
-        const response = await fetch(urlPost, {
-            method: 'POST',
-            headers: {
-                'accept': '*/*',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(finalPostBody),
-        });
+      const urlPost = `${API_BASE_URL}/Verificacion/iniciar`;
+      const response = await fetch(urlPost, {
+        method: 'POST',
+        headers: {
+          'accept': '*/*',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(finalPostBody),
+      });
 
-        if (response.ok) {
-            const result = await response.json();
-            const newVerificationId = extractVerificationIdFromResponse(result);
-            if (!newVerificationId || Number.isNaN(newVerificationId)) {
-              throw new Error("No se pudo obtener el ID de la verificación creada.");
-            }
-            setCreatedVerificationId(newVerificationId);
-            setSubmitSuccess(`Verificación ${newVerificationId} iniciada. Redirigiendo...`);
-            setTimeout(() => router.push(`/dashboard/verificacion/${newVerificationId}`), REDIRECT_DELAY_MS);
-
-        } else {
-            let detail = "Error al iniciar la verificación en el servidor.";
-            try {
-              const errorText = await response.text();
-              if (errorText) {
-                try {
-                  const errorData = JSON.parse(errorText);
-                  detail = errorData.detail || errorData.message || errorData.error || detail;
-                } catch {
-                  detail = errorText;
-                }
-              }
-            } catch {
-              // ignore parse error
-            }
-            const existingVerificationId = extractVerificationIdFromError(detail);
-            if (existingVerificationId) {
-              try {
-                const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir/${existingVerificationId}`, {
-                  method: "PUT",
-                  headers: {
-                    accept: "*/*",
-                  },
-                });
-                if (!reopenResponse.ok) {
-                  let reopenDetail = `Error (${reopenResponse.status}) al reabrir la verificación ${existingVerificationId}.`;
-                  try {
-                    const reopenText = await reopenResponse.text();
-                    if (reopenText) {
-                      try {
-                        const reopenData = JSON.parse(reopenText);
-                        reopenDetail = reopenData.detail || reopenData.message || reopenData.error || reopenDetail;
-                      } catch {
-                        reopenDetail = reopenText;
-                      }
-                    }
-                  } catch {
-                    // ignore parse error
-                  }
-                  setReopenModalMessage(reopenDetail);
-                  setReopenVerificationId(existingVerificationId);
-                  setReopenModalOpen(true);
-                  setSubmitError(detail);
-                  return;
-                }
-                setSubmitSuccess(`Verificación ${existingVerificationId} reabierta. Redirigiendo...`);
-                setCreatedVerificationId(existingVerificationId);
-                setTimeout(() => router.push(`/dashboard/verificacion/${existingVerificationId}`), REDIRECT_DELAY_MS);
-                return;
-              } catch (reopenErr: any) {
-                throw new Error(reopenErr.message || "No se pudo reabrir la verificación existente.");
-              }
-            }
-            throw new Error(detail);
+      if (response.ok) {
+        const result = await response.json();
+        const newVerificationId = extractVerificationIdFromResponse(result);
+        if (!newVerificationId || Number.isNaN(newVerificationId)) {
+          throw new Error("No se pudo obtener el ID de la verificación creada.");
         }
+        setCreatedVerificationId(newVerificationId);
+        setSubmitSuccess(`Verificación ${newVerificationId} iniciada. Redirigiendo...`);
+        setTimeout(() => router.push(`/dashboard/verificacion/${newVerificationId}`), REDIRECT_DELAY_MS);
+
+      } else {
+        let detail = "Error al iniciar la verificación en el servidor.";
+        try {
+          const errorText = await response.text();
+          if (errorText) {
+            try {
+              const errorData = JSON.parse(errorText);
+              detail = errorData.detail || errorData.message || errorData.error || detail;
+            } catch {
+              detail = errorText;
+            }
+          }
+        } catch {
+          // ignore parse error
+        }
+        const existingVerificationId = extractVerificationIdFromError(detail);
+        if (existingVerificationId) {
+          try {
+            const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir/${existingVerificationId}`, {
+              method: "PUT",
+              headers: {
+                accept: "*/*",
+              },
+            });
+            if (!reopenResponse.ok) {
+              let reopenDetail = `Error (${reopenResponse.status}) al reabrir la verificación ${existingVerificationId}.`;
+              try {
+                const reopenText = await reopenResponse.text();
+                if (reopenText) {
+                  try {
+                    const reopenData = JSON.parse(reopenText);
+                    reopenDetail = reopenData.detail || reopenData.message || reopenData.error || reopenDetail;
+                  } catch {
+                    reopenDetail = reopenText;
+                  }
+                }
+              } catch {
+                // ignore parse error
+              }
+              setReopenModalMessage(reopenDetail);
+              setReopenVerificationId(existingVerificationId);
+              setReopenModalOpen(true);
+              setSubmitError(detail);
+              return;
+            }
+            setSubmitSuccess(`Verificación ${existingVerificationId} reabierta. Redirigiendo...`);
+            setCreatedVerificationId(existingVerificationId);
+            setTimeout(() => router.push(`/dashboard/verificacion/${existingVerificationId}`), REDIRECT_DELAY_MS);
+            return;
+          } catch (reopenErr: any) {
+            throw new Error(reopenErr.message || "No se pudo reabrir la verificación existente.");
+          }
+        }
+        throw new Error(detail);
+      }
     } catch (err: any) {
-        setSubmitError(err.message || "Error de conexión desconocido.");
+      setSubmitError(err.message || "Error de conexión desconocido.");
     } finally {
-        setIsSubmitting(false);
+      setIsSubmitting(false);
     }
-};
+  };
 
   // ----------------------------------------------------
   // --- RENDERING CONDICIONAL (UI) ---
@@ -486,59 +546,59 @@ const startScanner = async () => {
   // Usamos consolidatedData para ambos modos
   if (isDataAvailable && consolidatedData && verificationStarted) {
     const { etiqueta, valoresTecnicos } = consolidatedData;
-    
-    return (
-        <div className="max-w-2xl mx-auto space-y-6">
-            <h3 className="text-2xl font-bold text-primary">Detalles de Inicio ({mode.toUpperCase()})</h3>
-            <p className="text-muted-foreground">Complete los campos manuales para iniciar formalmente la verificación de **{etiqueta.nombreProducto}**.</p>
-            
-            {(submitError || fetchError) && (
-              <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                <AlertCircle className="w-4 h-4" />
-                {submitError || fetchError}
-              </div>
-            )}
 
-            <form onSubmit={handleStartVerificationSubmit} className="space-y-6">
-                <div className="space-y-2">
-                    <Label htmlFor="cliente">Cliente *</Label>
-                    <Input id="cliente" placeholder="Ingrese o seleccione el Cliente" value={clienteInput}
-                        onChange={(e) => setClienteInput(e.target.value)} disabled={isSubmitting}/>
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
-                    <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
-                      <SelectTrigger className="w-full h-12">
-                        <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Wicket">Wicket</SelectItem>
-                        <SelectItem value="Sello Lateral">Sello Lateral</SelectItem>
-                      </SelectContent>
-                    </Select>
-                </div>
-                
-                <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
-                    {isSubmitting ? "Iniciando..." : "Confirmar e Iniciar Verificación"}
-                </Button>
-                <Button 
-                    type="button" variant="outline" className="w-full" onClick={() => setVerificationStarted(false)}
-                    disabled={isSubmitting}>
-                    Volver a Datos de {mode === "bioflex" ? "Trazabilidad" : mode === "destiny" ? "Destiny" : "Quality"}
-                </Button>
-            </form>
-            {reopenModal}
-        </div>
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <h3 className="text-2xl font-bold text-primary">Detalles de Inicio ({mode.toUpperCase()})</h3>
+        <p className="text-muted-foreground">Complete los campos manuales para iniciar formalmente la verificación de **{etiqueta.nombreProducto}**.</p>
+
+        {(submitError || fetchError) && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+            <AlertCircle className="w-4 h-4" />
+            {submitError || fetchError}
+          </div>
+        )}
+
+        <form onSubmit={handleStartVerificationSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="cliente">Cliente *</Label>
+            <Input id="cliente" placeholder="Ingrese o seleccione el Cliente" value={clienteInput}
+              onChange={(e) => setClienteInput(e.target.value)} disabled={isSubmitting} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
+            <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
+              <SelectTrigger className="w-full h-12">
+                <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Wicket">Wicket</SelectItem>
+                <SelectItem value="Sello Lateral">Sello Lateral</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
+            {isSubmitting ? "Iniciando..." : "Confirmar e Iniciar Verificación"}
+          </Button>
+          <Button
+            type="button" variant="outline" className="w-full" onClick={() => setVerificationStarted(false)}
+            disabled={isSubmitting}>
+            Volver a Datos de {mode === "bioflex" ? "Trazabilidad" : mode === "destiny" ? "Destiny" : "Quality"}
+          </Button>
+        </form>
+        {reopenModal}
+      </div>
     );
   }
 
 
   // --- FASE 1: Display de Datos (Bioflex o Destiny) ---
   if (isDataAvailable && consolidatedData && !verificationStarted) {
-    
+
     const isBioflex = mode === "bioflex";
     const { etiqueta, orden, valoresTecnicos } = consolidatedData;
-    
+
     // Type guard para detectar si la etiqueta tiene la forma DestinyEtiquetaData
     const isDestinyEtiqueta = (e: any): e is DestinyEtiquetaData => {
       return !!e && typeof e === "object" && ("prodEtiquetasDestiny" in e || "piezas" in e || "claveUnidad" in e);
@@ -546,14 +606,14 @@ const startScanner = async () => {
 
     // Display values (Calculados según modo para la vista previa)
     const piezasPorCajaDisplay = isBioflex
-        ? ((etiqueta as any).valor || valoresTecnicos?.piezasPorCaja)
-        : (isDestinyEtiqueta(etiqueta)
-            ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-")
-            : (valoresTecnicos?.piezasPorCaja ?? "-"));
-    
+      ? ((etiqueta as any).valor || valoresTecnicos?.piezasPorCaja)
+      : (isDestinyEtiqueta(etiqueta)
+        ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-")
+        : (valoresTecnicos?.piezasPorCaja ?? "-"));
+
     const qtyOrden = isBioflex
-        ? `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`
-        : `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`;
+      ? `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`
+      : `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`;
 
     const secondaryHeader = isBioflex
       ? `Trazabilidad: ${(etiqueta as any).trazabilidad}`
@@ -576,44 +636,44 @@ const startScanner = async () => {
         <Card className="border-0 shadow-lg bg-card">
           <CardHeader>
             <div className="flex items-center justify-between">
-                <CardTitle className="text-2xl text-primary">{etiqueta.nombreProducto}</CardTitle>
-                <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
-                    {etiqueta.claveProducto}
-                </div>
+              <CardTitle className="text-2xl text-primary">{etiqueta.nombreProducto}</CardTitle>
+              <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
+                {etiqueta.claveProducto}
+              </div>
             </div>
             <CardDescription className="flex items-center gap-2">
-                <Hash className="w-4 h-4" />
-                {secondaryHeader}
+              <Hash className="w-4 h-4" />
+              {secondaryHeader}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase">Área</Label>
-                <p className="font-semibold text-lg">{etiqueta.area}</p>
+              <Label className="text-muted-foreground text-xs uppercase">Área</Label>
+              <p className="font-semibold text-lg">{etiqueta.area}</p>
             </div>
             <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase">Orden (Lote)</Label>
-                <p className="font-semibold text-lg">{etiqueta.orden}</p>
+              <Label className="text-muted-foreground text-xs uppercase">Orden (Lote)</Label>
+              <p className="font-semibold text-lg">{etiqueta.orden}</p>
             </div>
             <div className="col-span-2 space-y-1 bg-primary/10 p-3 rounded-lg">
-                <Label className="text-primary text-xs uppercase">Cantidad Ordenada</Label>
-                <p className="font-bold text-xl">{qtyOrden}</p>
+              <Label className="text-primary text-xs uppercase">Cantidad Ordenada</Label>
+              <p className="font-bold text-xl">{qtyOrden}</p>
             </div>
             <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase">Print Card</Label>
-                <p className="font-semibold">{etiqueta.printCard || "N/A"}</p>
+              <Label className="text-muted-foreground text-xs uppercase">Print Card</Label>
+              <p className="font-semibold">{etiqueta.printCard || "N/A"}</p>
             </div>
-          
+
             <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs uppercase">Piezas por Caja (QtyUOM)</Label>
-                <p className="font-semibold">{piezasPorCajaDisplay}</p>
+              <Label className="text-muted-foreground text-xs uppercase">Piezas por Caja (QtyUOM)</Label>
+              <p className="font-semibold">{piezasPorCajaDisplay}</p>
             </div>
           </CardContent>
         </Card>
 
         <div className="pt-4">
-          <Button 
-            onClick={() => setVerificationStarted(true)} 
+          <Button
+            onClick={() => setVerificationStarted(true)}
             className="w-full h-12 text-lg"
           >
             <CheckCircle className="w-5 h-5 mr-2" />
@@ -628,113 +688,340 @@ const startScanner = async () => {
   // --- FLUJOS DESTINY Y QUALITY (Inputs de Búsqueda) ---
   if (mode === "destiny") {
     return (
-        <div className="max-w-2xl mx-auto space-y-6">
-            <div className="flex items-center gap-4">
-            <Button
-                variant="ghost" size="icon" onClick={() => setMode("bioflex")}
-            >
-                <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-                <h2 className="text-2xl font-bold text-foreground">Destiny</h2>
-                <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Destiny.</p>
-            </div>
-            </div>
-
-            {(submitError || fetchError) && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                <AlertCircle className="w-4 h-4" />
-                {submitError || fetchError}
-            </div>
-            )}
-
-            <Card className="border-0 shadow-lg bg-card">
-            <CardHeader>
-                <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
-                <CardDescription>ItemNo, InventoryLot y ShippingUnitId</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <form onSubmit={handleDestinySubmit} className="space-y-4">
-                <div className="space-y-2">
-                    <Label htmlFor="destiny-item">ItemNo</Label>
-                    <Input id="destiny-item" value={destinyItemNo} onChange={(e) => setDestinyItemNo(e.target.value)} placeholder="Ej. 61953-11" disabled={isFetching} />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="destiny-lot">InventoryLot</Label>
-                    <Input id="destiny-lot" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="destiny-shipping">ShippingUnitId</Label>
-                    <Input id="destiny-shipping" value={destinyShippingUnitId} onChange={(e) => setDestinyShippingUnitId(e.target.value)} placeholder="Ej. 28596" disabled={isFetching} />
-                </div>
-                <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
-                    {isFetching ? "Buscando..." : "Buscar datos Destiny"}
-                </Button>
-                </form>
-            </CardContent>
-            </Card>
-            {reopenModal}
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost" size="icon" onClick={() => setMode("bioflex")}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h2 className="text-2xl font-bold text-foreground">Destiny</h2>
+            <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Destiny.</p>
+          </div>
         </div>
+
+        {(submitError || fetchError) && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+            <AlertCircle className="w-4 h-4" />
+            {submitError || fetchError}
+          </div>
+        )}
+
+        <Card className="border-0 shadow-lg bg-card">
+          <CardHeader>
+            <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
+            <CardDescription>ItemNo, InventoryLot y ShippingUnitId</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleDestinySubmit} className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="destiny-item">ItemNo</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() =>
+                      setHelpImage({
+                        title: "Guia ItemNo",
+                        src: "/guia-ItemNo.jpg",
+                        alt: "Guia para encontrar ItemNo",
+                      })
+                    }
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input id="destiny-item" value={destinyItemNo} onChange={(e) => setDestinyItemNo(e.target.value)} placeholder="Ej. 61953-11" disabled={isFetching} />
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (isScannerActive && scanTarget === "destinyItemNo") {
+                        stopScanner()
+                      } else {
+                        startScanner("destinyItemNo", [
+                          "code_128",
+                          "code_39",
+                          "code_93",
+                          "ean_13",
+                          "ean_8",
+                          "itf",
+                          "upc_a",
+                          "upc_e",
+                          "codabar",
+                          "qr_code",
+                        ])
+                      }
+                    }}
+                    disabled={isFetching}
+                  >
+                    <QrCode className="w-5 h-5 mr-2" />
+                    {isScannerActive && scanTarget === "destinyItemNo"
+                      ? "Detener escaneo"
+                      : "Escanear código de barras"}
+                  </Button>
+                  {scannerError && scanTarget === "destinyItemNo" && (
+                    <p className="text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      {scannerError}
+                    </p>
+                  )}
+                  {isScannerActive && scanTarget === "destinyItemNo" && (
+                    <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
+                      <video
+                        ref={videoRef}
+                        className="w-full rounded-md aspect-video object-cover"
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{ backgroundColor: '#000' }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {isVideoReady
+                          ? "Apunte al código de barras para capturar el ItemNo."
+                          : "Cargando cámara..."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="destiny-lot">InventoryLot</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() =>
+                      setHelpImage({
+                        title: "Guia InventoryLot",
+                        src: "/guia-Inventorylot.jpg",
+                        alt: "Guia para encontrar InventoryLot",
+                      })
+                    }
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input id="destiny-lot" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="destiny-shipping">ShippingUnitId</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() =>
+                      setHelpImage({
+                        title: "Guia ShippingUnitId",
+                        src: "/guia-Shippingunit.jpg",
+                        alt: "Guia para encontrar ShippingUnitId",
+                      })
+                    }
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input id="destiny-shipping" value={destinyShippingUnitId} onChange={(e) => setDestinyShippingUnitId(e.target.value)} placeholder="Ej. 28596" disabled={isFetching} />
+              </div>
+              <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
+                {isFetching ? "Buscando..." : "Buscar datos Destiny"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+        {reopenModal}
+        {helpModal}
+      </div>
     )
   }
 
   if (mode === "quality") {
     return (
-        <div className="max-w-2xl mx-auto space-y-6">
-            <div className="flex items-center gap-4">
-            <Button
-                variant="ghost" size="icon" onClick={() => setMode("bioflex")}
-            >
-                <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-                <h2 className="text-2xl font-bold text-foreground">Quality</h2>
-                <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Quality.</p>
-            </div>
-            </div>
-
-            {(submitError || fetchError) && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                <AlertCircle className="w-4 h-4" />
-                {submitError || fetchError}
-            </div>
-            )}
-
-            <Card className="border-0 shadow-lg bg-card">
-            <CardHeader>
-                <CardTitle className="text-xl text-card-foreground">Datos Quality</CardTitle>
-                <CardDescription>Ingrese PO2 e Item Number para buscar datos.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <form onSubmit={handleQualitySubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="quality-po2">PO2</Label>
-                    <Input
-                      id="quality-po2"
-                      value={qualityPO2}
-                      onChange={(e) => setQualityPO2(e.target.value)}
-                      placeholder="Ej. 184335"
-                      disabled={isFetching}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="quality-item">Item Number</Label>
-                    <Input
-                      id="quality-item"
-                      value={qualityItemNumber}
-                      onChange={(e) => setQualityItemNumber(e.target.value)}
-                      placeholder="Ej. P101212"
-                      disabled={isFetching}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
-                    {isFetching ? "Buscando..." : "Buscar datos Quality"}
-                  </Button>
-                </form>
-            </CardContent>
-            </Card>
-            {reopenModal}
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost" size="icon" onClick={() => setMode("bioflex")}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h2 className="text-2xl font-bold text-foreground">Quality</h2>
+            <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Quality.</p>
+          </div>
         </div>
+
+        {(submitError || fetchError) && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+            <AlertCircle className="w-4 h-4" />
+            {submitError || fetchError}
+          </div>
+        )}
+
+        <Card className="border-0 shadow-lg bg-card">
+          <CardHeader>
+            <CardTitle className="text-xl text-card-foreground">Datos Quality</CardTitle>
+            <CardDescription>Ingrese Lot Number e Item Number para buscar datos.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleQualitySubmit} className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="quality-po2">Lot Number</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() =>
+                      setHelpImage({
+                        title: "Guia Lot Number",
+                        src: "/lotNumber.jpg",
+                        alt: "Guia para encontrar Lot Number",
+                      })
+                    }
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input
+                  id="quality-po2"
+                  value={qualityPO2}
+                  onChange={(e) => setQualityPO2(e.target.value)}
+                  placeholder="Ej. 184335"
+                  disabled={isFetching}
+                />
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (isScannerActive && scanTarget === "qualityLot") {
+                        stopScanner()
+                      } else {
+                        startScanner("qualityLot", ["qr_code"])
+                      }
+                    }}
+                    disabled={isFetching}
+                  >
+                    <QrCode className="w-5 h-5 mr-2" />
+                    {isScannerActive && scanTarget === "qualityLot"
+                      ? "Detener escaneo"
+                      : "Escanear QR con cámara"}
+                  </Button>
+                  {scannerError && scanTarget === "qualityLot" && (
+                    <p className="text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      {scannerError}
+                    </p>
+                  )}
+                  {isScannerActive && scanTarget === "qualityLot" && (
+                    <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
+                      <video
+                        ref={videoRef}
+                        className="w-full rounded-md aspect-video object-cover"
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{ backgroundColor: '#000' }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {isVideoReady
+                          ? "Apunte al QR para capturar el Lot Number (6 dígitos)."
+                          : "Cargando cámara..."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="quality-item">Item Number</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() =>
+                      setHelpImage({
+                        title: "Guia Item Number",
+                        src: "/itemNumber.jpg",
+                        alt: "Guia para encontrar Item Number",
+                      })
+                    }
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input
+                  id="quality-item"
+                  value={qualityItemNumber}
+                  onChange={(e) => setQualityItemNumber(e.target.value)}
+                  placeholder="Ej. P101212"
+                  disabled={isFetching}
+                />
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (isScannerActive && scanTarget === "qualityItem") {
+                        stopScanner()
+                      } else {
+                        startScanner("qualityItem", ["qr_code"])
+                      }
+                    }}
+                    disabled={isFetching}
+                  >
+                    <QrCode className="w-5 h-5 mr-2" />
+                    {isScannerActive && scanTarget === "qualityItem"
+                      ? "Detener escaneo"
+                      : "Escanear QR con cámara"}
+                  </Button>
+                  {scannerError && scanTarget === "qualityItem" && (
+                    <p className="text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      {scannerError}
+                    </p>
+                  )}
+                  {isScannerActive && scanTarget === "qualityItem" && (
+                    <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
+                      <video
+                        ref={videoRef}
+                        className="w-full rounded-md aspect-video object-cover"
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{ backgroundColor: '#000' }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {isVideoReady
+                          ? "Apunte al QR para capturar el Item Number (inicia con P)."
+                          : "Cargando cámara..."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
+                {isFetching ? "Buscando..." : "Buscar datos Quality"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+        {reopenModal}
+        {helpModal}
+      </div>
     )
   }
 
@@ -822,11 +1109,11 @@ const startScanner = async () => {
         </div>
       )}
 
-     {mode === "bioflex" && !isDataAvailable && (
+      {mode === "bioflex" && !isDataAvailable && (
         <Card className="border-0 shadow-xl bg-card">
           <CardHeader className="text-center">
             <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                <QrCode className="w-8 h-8 text-primary" />
+              <QrCode className="w-8 h-8 text-primary" />
             </div>
             <CardTitle className="text-xl text-card-foreground">Bioflex</CardTitle>
             <CardDescription>Ingresa el código o escanea el QR.</CardDescription>
@@ -854,24 +1141,26 @@ const startScanner = async () => {
                     variant="outline"
                     className="w-full"
                     onClick={() => {
-                      if (isScannerActive) {
+                      if (isScannerActive && scanTarget === "trazability") {
                         stopScanner()
                       } else {
-                        startScanner()
+                        startScanner("trazability", ["qr_code"])
                       }
                     }}
                     disabled={isFetching}
                   >
                     <QrCode className="w-5 h-5 mr-2" />
-                    {isScannerActive ? "Detener escaneo" : "Escanear QR con cámara"}
+                    {isScannerActive && scanTarget === "trazability"
+                      ? "Detener escaneo"
+                      : "Escanear QR con cámara"}
                   </Button>
-                  {scannerError && (
+                  {scannerError && scanTarget === "trazability" && (
                     <p className="text-sm text-destructive flex items-center gap-2">
                       <AlertCircle className="w-4 h-4" />
                       {scannerError}
                     </p>
                   )}
-                  {isScannerActive && (
+                  {isScannerActive && scanTarget === "trazability" && (
                     <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
                       <video
                         ref={videoRef}
@@ -882,8 +1171,8 @@ const startScanner = async () => {
                         style={{ backgroundColor: '#000' }}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {isVideoReady 
-                          ? "Apunte al código QR para capturar la trazabilidad." 
+                        {isVideoReady
+                          ? "Apunte al código QR para capturar la trazabilidad."
                           : "Cargando cámara..."}
                       </p>
                     </div>

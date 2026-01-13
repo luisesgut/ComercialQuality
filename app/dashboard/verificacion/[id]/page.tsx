@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare } from 'lucide-react';
+import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle } from 'lucide-react';
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -90,6 +90,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isFinishing, setIsFinishing] = useState(false);
     const [finishError, setFinishError] = useState<string | null>(null);
     const [finishSuccess, setFinishSuccess] = useState<string | null>(null);
+    const [isConsecutivoHelpOpen, setIsConsecutivoHelpOpen] = useState(false);
     
     // Función para obtener los detalles del dashboard (GET a /dashboard/{id})
     const fetchDashboardData = async () => {
@@ -859,7 +860,18 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    <Label htmlFor="consecutivo">Consecutivo Manual</Label>
+                                    <div className="flex items-center gap-2">
+                                        <Label htmlFor="consecutivo">Consecutivo Manual</Label>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-5 w-5"
+                                            onClick={() => setIsConsecutivoHelpOpen(true)}
+                                        >
+                                            <HelpCircle className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                     <Input
                                         id="consecutivo"
                                         type="number"
@@ -964,6 +976,30 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
                     </CardContent>
                 </Card>
+            )}
+
+            {isConsecutivoHelpOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b pb-3">
+                            <h3 className="text-lg font-bold">Guia Consecutivo Manual</h3>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsConsecutivoHelpOpen(false)}
+                            >
+                                &times;
+                            </Button>
+                        </div>
+                        <div className="flex justify-center">
+                            <img
+                                src="/guia-consecDestiny.jpg"
+                                alt="Guia para consecutivo manual Destiny"
+                                className="max-h-[70vh] w-auto rounded-md border"
+                            />
+                        </div>
+                    </div>
+                </div>
             )}
 
             {isEvidenceModalOpen && (
