@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Iconos
 import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash } from "lucide-react"
@@ -34,6 +35,7 @@ export function NewVerificationForm() {
       error: fetchError, 
       fetchByBioflex,
       fetchByDestiny,
+      fetchByQuality,
       resetData,
   } = useVerificationData();
   
@@ -54,11 +56,13 @@ export function NewVerificationForm() {
   // --- ESTADOS DE LA FASE 2 (Inputs Manuales y POST) ---
   const [clienteInput, setClienteInput] = useState<string>('');
   const [tipoBolsaInput, setTipoBolsaInput] = useState<string>('');
-  const [piezasPorWicketInput, setPiezasPorWicketInput] = useState<number | string>(''); 
   const [isSubmitting, setIsSubmitting] = useState(false) 
   const [submitError, setSubmitError] = useState<string | null>(null) 
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null) 
   const [createdVerificationId, setCreatedVerificationId] = useState<number | null>(null)
+  const [reopenModalOpen, setReopenModalOpen] = useState(false)
+  const [reopenVerificationId, setReopenVerificationId] = useState<number | null>(null)
+  const [reopenModalMessage, setReopenModalMessage] = useState<string>("")
   const REDIRECT_DELAY_MS = 600
   
   // --- ESTADOS ESPECÍFICOS DE DESTINY (Inputs) ---
@@ -70,6 +74,54 @@ export function NewVerificationForm() {
   const [qualityPO2, setQualityPO2] = useState("")
   const [qualityItemNumber, setQualityItemNumber] = useState("")
   const scanLoopRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!verificationStarted) return;
+    const clientePorModo = mode.toUpperCase();
+    setClienteInput(clientePorModo);
+  }, [mode, verificationStarted]);
+
+  const extractVerificationIdFromError = (message: string) => {
+    const match = message.match(/ID:\s*(\d+)/i);
+    return match ? Number(match[1]) : null;
+  };
+
+  const extractVerificationIdFromResponse = (data: any) => {
+    const idValue = data?.id ?? data?.verificacionId ?? data?.verificationId;
+    return typeof idValue === "number" ? idValue : Number(idValue);
+  };
+
+  const reopenModal = reopenModalOpen ? (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="text-xl font-bold flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-destructive" /> Verificacion existente
+          </h3>
+          <Button variant="ghost" size="icon" onClick={() => setReopenModalOpen(false)}>
+            &times;
+          </Button>
+        </div>
+        <p className="text-muted-foreground text-sm">{reopenModalMessage}</p>
+        <div className="flex gap-3 pt-2">
+          <Button
+            className="flex-1"
+            onClick={() => {
+              if (reopenVerificationId) {
+                router.push(`/dashboard/verificacion/${reopenVerificationId}`)
+              }
+              setReopenModalOpen(false)
+            }}
+          >
+            Llevarme a la verificacion
+          </Button>
+          <Button variant="outline" className="flex-1" onClick={() => setReopenModalOpen(false)}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   
   // ----------------------------------------------------
@@ -100,13 +152,18 @@ export function NewVerificationForm() {
     await fetchByDestiny(destinyItemNo, destinyInventoryLot, destinyShippingUnitId);
   }
 
-  // Quality (Mock)
-  const handleQualitySubmit = (e: React.FormEvent) => {
+  // Quality
+  const handleQualitySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitError(null)
-    setSubmitSuccess(
-      `Funcionalidad en desarrollo. Pronto se conectará el flujo de Quality (PO2 ${qualityPO2}, Item Number ${qualityItemNumber}).`,
-    )
+    setVerificationStarted(false);
+
+    if (!qualityPO2 || !qualityItemNumber) {
+      setSubmitError("Complete PO2 y Item Number para Quality.")
+      return
+    }
+
+    await fetchByQuality(qualityPO2, qualityItemNumber);
   }
 
   // ----------------------------------------------------
@@ -270,16 +327,29 @@ const startScanner = async () => {
             wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0, // 6
             perforaciones: String(valoresTecnicos?.cantPerforaciones || ""), // "4"
         };
+    } else if (mode === "quality") {
+        postDataSpecific = {
+            cantidadOrden: orden?.cantidad,
+            unidadOrden: orden?.unidad,
+            piezasPorCaja: valoresTecnicos?.piezasPorCaja || 0,
+            cajasPorTarima: valoresTecnicos?.cajasXtarima || 0,
+            wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0,
+            perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
+        };
     }
     
     // 2. Validar Inputs Manuales (compartidos)
-    if (!clienteInput || !tipoBolsaInput || Number(piezasPorWicketInput) <= 0) {
+    if (!clienteInput || !tipoBolsaInput) {
         setSubmitError("Por favor, complete todos los campos manuales requeridos.");
         return;
     }
 
     setIsSubmitting(true);
     setSubmitError(null);
+
+    const piezasPorWicketCalculated = Number(postDataSpecific?.piezasPorCaja) > 0 && Number(valoresTecnicos?.wicketPorCaja) > 0
+      ? Number(postDataSpecific.piezasPorCaja) / Number(valoresTecnicos.wicketPorCaja)
+      : 0;
 
     // --- 3. CONSTRUCCIÓN DEL BODY FINAL ---
     const finalPostBody = {
@@ -289,7 +359,7 @@ const startScanner = async () => {
         validadores: user?.name || "USUARIO DESCONOCIDO", 
         printCard: etiqueta.printCard || "", // "E-4814-A_R-1"
         tipoBolsa: tipoBolsaInput, 
-        piezasPorWicket: Number(piezasPorWicketInput), 
+        piezasPorWicket: piezasPorWicketCalculated, 
         ...postDataSpecific 
     };
 
@@ -305,18 +375,67 @@ const startScanner = async () => {
         });
 
         if (response.ok) {
-            const result = await response.json(); 
-            setSubmitSuccess(`Verificación ${result.id} iniciada. Redirigiendo...`);
-            setCreatedVerificationId(result.id);
-            setTimeout(() => router.push(`/dashboard/verificacion/${result.id}`), REDIRECT_DELAY_MS);
+            const result = await response.json();
+            const newVerificationId = extractVerificationIdFromResponse(result);
+            if (!newVerificationId || Number.isNaN(newVerificationId)) {
+              throw new Error("No se pudo obtener el ID de la verificación creada.");
+            }
+            setCreatedVerificationId(newVerificationId);
+            setSubmitSuccess(`Verificación ${newVerificationId} iniciada. Redirigiendo...`);
+            setTimeout(() => router.push(`/dashboard/verificacion/${newVerificationId}`), REDIRECT_DELAY_MS);
 
         } else {
             let detail = "Error al iniciar la verificación en el servidor.";
             try {
-              const errorData = await response.json();
-              detail = errorData.detail || detail;
+              const errorText = await response.text();
+              if (errorText) {
+                try {
+                  const errorData = JSON.parse(errorText);
+                  detail = errorData.detail || errorData.message || errorData.error || detail;
+                } catch {
+                  detail = errorText;
+                }
+              }
             } catch {
               // ignore parse error
+            }
+            const existingVerificationId = extractVerificationIdFromError(detail);
+            if (existingVerificationId) {
+              try {
+                const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir/${existingVerificationId}`, {
+                  method: "PUT",
+                  headers: {
+                    accept: "*/*",
+                  },
+                });
+                if (!reopenResponse.ok) {
+                  let reopenDetail = `Error (${reopenResponse.status}) al reabrir la verificación ${existingVerificationId}.`;
+                  try {
+                    const reopenText = await reopenResponse.text();
+                    if (reopenText) {
+                      try {
+                        const reopenData = JSON.parse(reopenText);
+                        reopenDetail = reopenData.detail || reopenData.message || reopenData.error || reopenDetail;
+                      } catch {
+                        reopenDetail = reopenText;
+                      }
+                    }
+                  } catch {
+                    // ignore parse error
+                  }
+                  setReopenModalMessage(reopenDetail);
+                  setReopenVerificationId(existingVerificationId);
+                  setReopenModalOpen(true);
+                  setSubmitError(detail);
+                  return;
+                }
+                setSubmitSuccess(`Verificación ${existingVerificationId} reabierta. Redirigiendo...`);
+                setCreatedVerificationId(existingVerificationId);
+                setTimeout(() => router.push(`/dashboard/verificacion/${existingVerificationId}`), REDIRECT_DELAY_MS);
+                return;
+              } catch (reopenErr: any) {
+                throw new Error(reopenErr.message || "No se pudo reabrir la verificación existente.");
+              }
             }
             throw new Error(detail);
         }
@@ -358,6 +477,7 @@ const startScanner = async () => {
             </Button>
           </CardContent>
         </Card>
+        {reopenModal}
       </div>
     );
   }
@@ -367,19 +487,6 @@ const startScanner = async () => {
   if (isDataAvailable && consolidatedData && verificationStarted) {
     const { etiqueta, valoresTecnicos } = consolidatedData;
     
-    // Calcular sugerencia de piezas por wicket para Destiny
-    let piezasPorWicketSuggestion = "";
-    if (mode === "destiny" && valoresTecnicos) {
-        const destLabel = etiqueta as unknown as DestinyEtiquetaData;
-        const qtyUOM = Number(destLabel.prodEtiquetasDestiny?.qtyUOM || 0);
-        const wicketPorCaja = valoresTecnicos.wicketPorCaja || 1;
-        
-        if (qtyUOM > 0 && wicketPorCaja > 0) {
-            const calculado = qtyUOM / wicketPorCaja;
-            piezasPorWicketSuggestion = ` (Sugerido: ${calculado.toFixed(2)})`;
-        }
-    }
-
     return (
         <div className="max-w-2xl mx-auto space-y-6">
             <h3 className="text-2xl font-bold text-primary">Detalles de Inicio ({mode.toUpperCase()})</h3>
@@ -400,13 +507,15 @@ const startScanner = async () => {
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
-                    <Input id="tipoBolsa" placeholder="Ingrese o seleccione el Tipo de Bolsa" value={tipoBolsaInput}
-                        onChange={(e) => setTipoBolsaInput(e.target.value)} disabled={isSubmitting}/>
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="piezasPorWicket">Piezas por Wicket *{piezasPorWicketSuggestion}</Label>
-                    <Input id="piezasPorWicket" type="number" placeholder="Ingrese el número de piezas" value={piezasPorWicketInput}
-                        onChange={(e) => setPiezasPorWicketInput(e.target.value)} disabled={isSubmitting} min="1" step="0.01"/>
+                    <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
+                      <SelectTrigger className="w-full h-12">
+                        <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Wicket">Wicket</SelectItem>
+                        <SelectItem value="Sello Lateral">Sello Lateral</SelectItem>
+                      </SelectContent>
+                    </Select>
                 </div>
                 
                 <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
@@ -415,9 +524,10 @@ const startScanner = async () => {
                 <Button 
                     type="button" variant="outline" className="w-full" onClick={() => setVerificationStarted(false)}
                     disabled={isSubmitting}>
-                    Volver a Datos de {mode === "bioflex" ? "Trazabilidad" : "Destiny"}
+                    Volver a Datos de {mode === "bioflex" ? "Trazabilidad" : mode === "destiny" ? "Destiny" : "Quality"}
                 </Button>
             </form>
+            {reopenModal}
         </div>
     );
   }
@@ -437,7 +547,9 @@ const startScanner = async () => {
     // Display values (Calculados según modo para la vista previa)
     const piezasPorCajaDisplay = isBioflex
         ? ((etiqueta as any).valor || valoresTecnicos?.piezasPorCaja)
-        : (isDestinyEtiqueta(etiqueta) ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-") : "-");
+        : (isDestinyEtiqueta(etiqueta)
+            ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-")
+            : (valoresTecnicos?.piezasPorCaja ?? "-"));
     
     const qtyOrden = isBioflex
         ? `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`
@@ -445,7 +557,9 @@ const startScanner = async () => {
 
     const secondaryHeader = isBioflex
       ? `Trazabilidad: ${(etiqueta as any).trazabilidad}`
-      : `Shipping ID: ${etiqueta.orden}`;
+      : mode === "quality"
+        ? `PO2: ${qualityPO2} · Item: ${qualityItemNumber}`
+        : `Shipping ID: ${etiqueta.orden}`;
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -506,6 +620,7 @@ const startScanner = async () => {
             Iniciar Verificación
           </Button>
         </div>
+        {reopenModal}
       </div>
     );
   }
@@ -558,6 +673,7 @@ const startScanner = async () => {
                 </form>
             </CardContent>
             </Card>
+            {reopenModal}
         </div>
     )
   }
@@ -587,26 +703,37 @@ const startScanner = async () => {
             <Card className="border-0 shadow-lg bg-card">
             <CardHeader>
                 <CardTitle className="text-xl text-card-foreground">Datos Quality</CardTitle>
-                <CardDescription>Funcionalidad en desarrollo. El ingreso de datos está deshabilitado.</CardDescription>
+                <CardDescription>Ingrese PO2 e Item Number para buscar datos.</CardDescription>
             </CardHeader>
             <CardContent>
-                <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
-                  <fieldset disabled className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="quality-po2">PO2</Label>
-                      <Input id="quality-po2" value={qualityPO2} placeholder="Próximamente" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="quality-item">Item Number</Label>
-                      <Input id="quality-item" value={qualityItemNumber} placeholder="Próximamente" />
-                    </div>
-                    <Button type="button" className="w-full h-12 text-lg">
-                      Próximamente disponible
-                    </Button>
-                  </fieldset>
+                <form onSubmit={handleQualitySubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="quality-po2">PO2</Label>
+                    <Input
+                      id="quality-po2"
+                      value={qualityPO2}
+                      onChange={(e) => setQualityPO2(e.target.value)}
+                      placeholder="Ej. 184335"
+                      disabled={isFetching}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="quality-item">Item Number</Label>
+                    <Input
+                      id="quality-item"
+                      value={qualityItemNumber}
+                      onChange={(e) => setQualityItemNumber(e.target.value)}
+                      placeholder="Ej. P101212"
+                      disabled={isFetching}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
+                    {isFetching ? "Buscando..." : "Buscar datos Quality"}
+                  </Button>
                 </form>
             </CardContent>
             </Card>
+            {reopenModal}
         </div>
     )
   }
@@ -778,6 +905,7 @@ const startScanner = async () => {
           </CardContent>
         </Card>
       )}
+      {reopenModal}
     </div>
   )
 }

@@ -11,6 +11,7 @@ interface HookResult {
   // Métodos de entrada
   fetchByBioflex: (trazabilidad: string) => Promise<void>;
   fetchByDestiny: (itemNo: string, lot: string, shippingId: string) => Promise<void>;
+  fetchByQuality: (po2: string, itemNo: string) => Promise<void>;
   resetData: () => void;
 }
 
@@ -26,7 +27,7 @@ export function useVerificationData(): HookResult {
   };
 
   // --- LÓGICA COMPARTIDA: Pasos 2 y 3 (Orden y Valores Técnicos) ---
-  const fetchComplementaryData = async (etiquetaData: any, origen: 'BIOFLEX' | 'DESTINY') => {
+  const fetchComplementaryData = async (etiquetaData: any, origen: 'BIOFLEX' | 'DESTINY' | 'QUALITY') => {
     try {
         let ordenSearch = "";
         let claveProductoSearch = "";
@@ -149,5 +150,46 @@ export function useVerificationData(): HookResult {
     }
   }, []);
 
-  return { consolidatedData, isFetching, error, fetchByBioflex, fetchByDestiny, resetData };
+  // --- ENTRADA 3: QUALITY ---
+  const fetchByQuality = useCallback(async (po2: string, itemNo: string) => {
+    if (!po2 || !itemNo) return;
+    setIsFetching(true);
+    setError(null);
+    setConsolidatedData(null);
+
+    try {
+        const urlQuality = `${API_BASE_URL}/EtiquetaIndividual/quality/search?u_po2=${encodeURIComponent(po2)}&u_itemNo=${encodeURIComponent(itemNo)}`;
+        const response = await fetch(urlQuality);
+
+        if (!response.ok) throw new Error(`Error (${response.status}) buscando Quality.`);
+
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          throw new Error("No se encontraron datos de Quality con esos parámetros.");
+        }
+
+        const first = data[0];
+        const etiquetaData = {
+          id: Number(first.id) || 0,
+          area: "QUALITY",
+          claveProducto: first.clave || "",
+          nombreProducto: first.producto || "",
+          orden: Number(first.pedido) || 0,
+          trazabilidad: String(first.pedido || ""),
+          printCard: null,
+          uom: "",
+          maquina: "",
+        };
+
+        await fetchComplementaryData(etiquetaData, 'QUALITY');
+
+    } catch (err: any) {
+        console.error("Error Quality:", err);
+        setError(err.message || "Error buscando Quality.");
+    } finally {
+        setIsFetching(false);
+    }
+  }, []);
+
+  return { consolidatedData, isFetching, error, fetchByBioflex, fetchByDestiny, fetchByQuality, resetData };
 }

@@ -11,11 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, ArrowLeft, QrCode, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Upload, CheckSquare } from 'lucide-react';
-
-// ✅ MODALES DE ESCANEO: Importamos ambos de forma absoluta
-import { VerificationScanModal } from '@/components/VerificationScanModal'; // Modal Bioflex
-import { VerificationScanModalDestiny } from '@/components/VerificationScanModalDestiny'; // Modal Destiny
+import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare } from 'lucide-react';
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -24,20 +20,72 @@ interface VerificationDetailProps {
     verificationId: string;
 }
 
+interface TarimaActiva {
+    tarimaId: number;
+    numeroTarima: number;
+    cajasLlevamos: number;
+    meta: number;
+    usuarioCreo: string;
+}
+
+interface TarimaTerminadaCaja {
+    detalleId: number;
+    identificador: string;
+    cantidad: number;
+    piezasAuditadas: number;
+    tieneDefectos: boolean;
+    comentarios: string | null;
+    horaEscaneo: string;
+}
+
+interface TarimaTerminada {
+    tarimaId: number;
+    numeroTarima: number;
+    cajasRegistradas: number;
+    usuario: string;
+    fechaCierre: string;
+    cajas: TarimaTerminadaCaja[];
+}
+
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+    const [currentUserName, setCurrentUserName] = useState<string>("USUARIO DESCONOCIDO");
+    const [tarimasActivas, setTarimasActivas] = useState<TarimaActiva[]>([]);
+    const [isTarimasLoading, setIsTarimasLoading] = useState(false);
+    const [tarimasError, setTarimasError] = useState<string | null>(null);
+    const [tarimasTerminadas, setTarimasTerminadas] = useState<TarimaTerminada[]>([]);
+    const [isTarimasTerminadasLoading, setIsTarimasTerminadasLoading] = useState(false);
+    const [tarimasTerminadasError, setTarimasTerminadasError] = useState<string | null>(null);
+    const [selectedTarima, setSelectedTarima] = useState<TarimaActiva | null>(null);
+    const [isCreatingTarima, setIsCreatingTarima] = useState(false);
+    const [createTarimaError, setCreateTarimaError] = useState<string | null>(null);
+    const [createTarimaSuccess, setCreateTarimaSuccess] = useState<string | null>(null);
+    const [trazabilidadInput, setTrazabilidadInput] = useState("");
+    const [consecutivoManualInput, setConsecutivoManualInput] = useState("");
+    const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
+    const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
+    const [tieneDefectosInput, setTieneDefectosInput] = useState(false);
+    const [comentariosDefectoInput, setComentariosDefectoInput] = useState("");
+    const [isRegisteringScan, setIsRegisteringScan] = useState(false);
+    const [registerError, setRegisterError] = useState<string | null>(null);
+    const [registerSuccess, setRegisterSuccess] = useState<string | null>(null);
+    const [registerStatusMessage, setRegisterStatusMessage] = useState<string | null>(null);
+    const [lastDetalleId, setLastDetalleId] = useState<number | null>(null);
     const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
     const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([]);
     const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
     const [evidenceError, setEvidenceError] = useState<string | null>(null);
     const [evidenceSuccess, setEvidenceSuccess] = useState<string | null>(null);
+    const [isCloseTarimaModalOpen, setIsCloseTarimaModalOpen] = useState(false);
+    const [closeTarimaMotivo, setCloseTarimaMotivo] = useState("");
+    const [isClosingTarima, setIsClosingTarima] = useState(false);
+    const [closeTarimaError, setCloseTarimaError] = useState<string | null>(null);
+    const [closeTarimaSuccess, setCloseTarimaSuccess] = useState<string | null>(null);
     const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
     const [finishMuestreo, setFinishMuestreo] = useState("");
-    const [finishDefectos, setFinishDefectos] = useState("");
     const [finishComentarios, setFinishComentarios] = useState("");
     const [isFinishing, setIsFinishing] = useState(false);
     const [finishError, setFinishError] = useState<string | null>(null);
@@ -64,34 +112,89 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
     };
 
+    const fetchTarimasActivas = async () => {
+        setIsTarimasLoading(true);
+        setTarimasError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/tarimas-activas/${verificationId}`);
+            if (!response.ok) {
+                throw new Error(`Error (${response.status}) al obtener tarimas activas.`);
+            }
+            const data: TarimaActiva[] = await response.json();
+            setTarimasActivas(Array.isArray(data) ? data : []);
+        } catch (err: any) {
+            setTarimasError(err.message || "Error de conexión al cargar tarimas.");
+            setTarimasActivas([]);
+        } finally {
+            setIsTarimasLoading(false);
+        }
+    };
+
+    const fetchTarimasTerminadas = async () => {
+        setIsTarimasTerminadasLoading(true);
+        setTarimasTerminadasError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/tarimas-terminadas/${verificationId}`);
+            if (!response.ok) {
+                throw new Error(`Error (${response.status}) al obtener tarimas terminadas.`);
+            }
+            const data: TarimaTerminada[] = await response.json();
+            setTarimasTerminadas(Array.isArray(data) ? data : []);
+        } catch (err: any) {
+            setTarimasTerminadasError(err.message || "Error de conexión al cargar tarimas terminadas.");
+            setTarimasTerminadas([]);
+        } finally {
+            setIsTarimasTerminadasLoading(false);
+        }
+    };
+
     // Ejecutar el fetch al montar el componente y cuando el ID cambie
     useEffect(() => {
         if (verificationId) {
             fetchDashboardData();
+            fetchTarimasActivas();
+            fetchTarimasTerminadas();
         }
     }, [verificationId]);
-    
-    
-    // ----------------------------------------------------
-    // LÓGICA DE INFERENCIA DEL TIPO DE MODAL
-    // ----------------------------------------------------
 
-    const getVerificationType = (): "BIOFLEX" | "DESTINY" => {
-        if (!dashboardData) return "BIOFLEX"; // Fallback seguro
+    useEffect(() => {
+        try {
+            const storedUser = localStorage.getItem("auth_user");
+            if (storedUser) {
+                const parsed = JSON.parse(storedUser);
+                if (parsed?.name) {
+                    setCurrentUserName(parsed.name);
+                }
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }, []);
 
-        // Preferimos el campo de cliente que viene directo del backend
+    useEffect(() => {
+        setRegisterError(null);
+        setRegisterSuccess(null);
+        setRegisterStatusMessage(null);
+        setCloseTarimaError(null);
+        setCloseTarimaSuccess(null);
+    }, [selectedTarima]);
+
+    const getVerificationType = (): "BIOFLEX" | "DESTINY" | "QUALITY" => {
+        if (!dashboardData) return "BIOFLEX";
         if (dashboardData.cliente === "DESTINY") return "DESTINY";
+        if (dashboardData.cliente === "QUALITY") return "QUALITY";
         if (dashboardData.cliente === "BIOFLEX") return "BIOFLEX";
-
-        // Fallback: inferencia por texto cuando no viene el cliente (compatibilidad)
         const productInfoUpper = dashboardData.productoInfo.toUpperCase();
         if (productInfoUpper.includes("DESTINY") || productInfoUpper.includes("61953")) {
             return "DESTINY";
         }
+        if (productInfoUpper.includes("QUALITY")) {
+            return "QUALITY";
+        }
         return "BIOFLEX";
     };
 
-
+    
     // --- Renderizado de Estados ---
     
     if (isLoading) {
@@ -123,14 +226,162 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     
     if (!dashboardData) return null; // Debería ser atrapado por error o loading
 
-    // --- Definición Condicional de Componente ---
     const verifiedIdNumber = dashboardData.verificacionId;
     const currentVerificationType = getVerificationType();
-    
-    const ModalComponent = currentVerificationType === "DESTINY" 
-        ? VerificationScanModalDestiny 
-        : VerificationScanModal;
 
+    const handleCreateTarima = async () => {
+        setCreateTarimaError(null);
+        setCreateTarimaSuccess(null);
+        setIsCreatingTarima(true);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/iniciar-tarima`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    verificacionId: verifiedIdNumber,
+                    usuario: currentUserName,
+                }),
+            });
+            if (!response.ok) {
+                let detail = `Error (${response.status}) al crear tarima.`;
+                try {
+                    const errorText = await response.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || errorData.error || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
+            }
+            setCreateTarimaSuccess("Tarima creada correctamente.");
+            fetchTarimasActivas();
+            fetchTarimasTerminadas();
+            fetchDashboardData();
+            setTimeout(() => router.refresh(), 300);
+        } catch (err: any) {
+            setCreateTarimaError(err.message || "Error de conexión al crear tarima.");
+        } finally {
+            setIsCreatingTarima(false);
+        }
+    };
+
+    const handleRegisterScan = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!selectedTarima) return;
+
+        setRegisterError(null);
+        setRegisterSuccess(null);
+        setRegisterStatusMessage(null);
+
+        const isBioflex = currentVerificationType === "BIOFLEX";
+
+        if (isBioflex && !trazabilidadInput) {
+            setRegisterError("Ingrese la trazabilidad para registrar la caja.");
+            return;
+        }
+
+        if (!isBioflex && !consecutivoManualInput) {
+            setRegisterError("Ingrese el consecutivo manual para registrar la caja.");
+            return;
+        }
+
+        if (!qtyUomEtiquetaInput) {
+            setRegisterError("Ingrese las piezas por caja (Qty UOM).");
+            return;
+        }
+
+        if (!piezasAuditadasInput) {
+            setRegisterError("Ingrese las piezas auditadas.");
+            return;
+        }
+
+        if (tieneDefectosInput && !comentariosDefectoInput) {
+            setRegisterError("Agregue comentarios del defecto.");
+            return;
+        }
+
+        const tipoEtiqueta = currentVerificationType;
+
+        const payload: Record<string, any> = {
+            verificacionId: verifiedIdNumber,
+            tarimaId: selectedTarima.tarimaId,
+            trazabilidad: isBioflex ? trazabilidadInput : null,
+            consecutivoManual: isBioflex ? 0 : Number(consecutivoManualInput),
+            qtyUomEtiqueta: qtyUomEtiquetaInput,
+            tipoEtiqueta,
+            piezasAuditadas: Number(piezasAuditadasInput),
+            ...(tieneDefectosInput
+                ? { tieneDefectos: true, comentariosDefecto: comentariosDefectoInput }
+                : {}),
+        };
+
+        setIsRegisteringScan(true);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/registrar-escaneo`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                let detail = `Error (${response.status}) al registrar caja.`;
+                try {
+                    const errorText = await response.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || errorData.error || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
+            }
+
+            const data = await response.json();
+            setRegisterSuccess("Caja registrada correctamente.");
+            if (data?.mensajeEstado) {
+                setRegisterStatusMessage(data.mensajeEstado);
+            }
+            if (data?.ultimoDetalleId) {
+                setLastDetalleId(Number(data.ultimoDetalleId));
+            } else {
+                setLastDetalleId(null);
+            }
+            setTrazabilidadInput("");
+            setConsecutivoManualInput("");
+            setQtyUomEtiquetaInput("");
+            setPiezasAuditadasInput("");
+            setTieneDefectosInput(false);
+            setComentariosDefectoInput("");
+            fetchTarimasActivas();
+            fetchTarimasTerminadas();
+            fetchDashboardData();
+            setTimeout(() => router.refresh(), 300);
+
+            if (tieneDefectosInput && data?.ultimoDetalleId) {
+                setIsEvidenceModalOpen(true);
+            }
+        } catch (err: any) {
+            setRegisterError(err.message || "Error de conexión al registrar la caja.");
+        } finally {
+            setIsRegisteringScan(false);
+        }
+    };
 
     const handleEvidenceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files ? Array.from(event.target.files) : [];
@@ -147,11 +398,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
+        if (!lastDetalleId) {
+            setEvidenceError("No se encontro el detalle para asociar la evidencia.");
+            return;
+        }
+
         setIsEvidenceUploading(true);
 
         try {
             const formData = new FormData();
             formData.append("VerificacionId", String(verifiedIdNumber));
+            formData.append("DetalleId", String(lastDetalleId));
             selectedEvidenceFiles.forEach((file) => formData.append("Fotos", file));
 
             const response = await fetch(`${API_BASE_URL}/Verificacion/subir-evidencia`, {
@@ -160,16 +417,90 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Error (${response.status}) al subir evidencia.`);
+                let detail = `Error (${response.status}) al subir evidencia.`;
+                try {
+                    const errorText = await response.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
             }
 
             setEvidenceSuccess("Evidencia subida correctamente.");
             setSelectedEvidenceFiles([]);
+            setTimeout(() => setIsEvidenceModalOpen(false), 600);
         } catch (err: any) {
             setEvidenceError(err.message || "Error de conexión al subir la evidencia.");
         } finally {
             setIsEvidenceUploading(false);
+        }
+    };
+
+    const handleCloseTarimaSubmit = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!selectedTarima) return;
+
+        setCloseTarimaError(null);
+        setCloseTarimaSuccess(null);
+
+        if (!closeTarimaMotivo.trim()) {
+            setCloseTarimaError("Ingrese el motivo de cierre.");
+            return;
+        }
+
+        setIsClosingTarima(true);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/terminar-tarima-manual`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    verificacionId: verifiedIdNumber,
+                    tarimaId: selectedTarima.tarimaId,
+                    motivo: closeTarimaMotivo.trim(),
+                }),
+            });
+
+            if (!response.ok) {
+                let detail = `Error (${response.status}) al cerrar tarima.`;
+                try {
+                    const errorText = await response.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
+            }
+
+            setCloseTarimaSuccess("Tarima cerrada correctamente.");
+            setCloseTarimaMotivo("");
+            setTimeout(() => setIsCloseTarimaModalOpen(false), 600);
+            fetchTarimasActivas();
+            fetchTarimasTerminadas();
+            fetchDashboardData();
+            setTimeout(() => router.refresh(), 300);
+            setSelectedTarima(null);
+        } catch (err: any) {
+            setCloseTarimaError(err.message || "Error de conexión al cerrar tarima.");
+        } finally {
+            setIsClosingTarima(false);
         }
     };
 
@@ -178,7 +509,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setFinishError(null);
         setFinishSuccess(null);
 
-        if (!finishMuestreo || !finishDefectos || !finishComentarios) {
+        if (!finishMuestreo || !finishComentarios) {
             setFinishError("Complete todos los campos para finalizar la verificación.");
             return;
         }
@@ -194,19 +525,30 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 body: JSON.stringify({
                     verificacionId: verifiedIdNumber,
                     muestreo: finishMuestreo,
-                    defectosEncontrados: finishDefectos,
                     comentarios: finishComentarios,
                 }),
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Error (${response.status}) al finalizar la verificación.`);
+                let detail = `Error (${response.status}) al finalizar la verificación.`;
+                try {
+                    const errorText = await response.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || errorData.error || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
             }
 
             setFinishSuccess("Verificación finalizada correctamente.");
             setFinishMuestreo("");
-            setFinishDefectos("");
             setFinishComentarios("");
             fetchDashboardData();
             setIsFinishModalOpen(false);
@@ -239,7 +581,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                          <Hash className="w-6 h-6 text-primary" />
                          <CardTitle className="text-xl">Lote/Orden: {dashboardData.loteOrden}</CardTitle>
                     </div>
-                    <p className="text-sm text-muted-foreground ml-9">Producto Info: {dashboardData.productoInfo}</p>
+                    <div className="flex flex-wrap items-center gap-2 ml-9">
+                        <p className="text-sm text-muted-foreground">Producto Info: {dashboardData.productoInfo}</p>
+                        <span className="text-xs text-muted-foreground">•</span>
+                        <span className="text-sm font-semibold text-foreground">{dashboardData.cliente}</span>
+                    </div>
                 </CardHeader>
             </Card>
 
@@ -288,64 +634,344 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 </Card>
             </div>
             
-            {/* Botón de Acción Clave: Abre el Modal de Escaneo (POST) */}
-            <Button 
-                className="w-full h-12 text-lg bg-primary hover:bg-primary/90 mt-6" 
-                onClick={() => setIsScanModalOpen(true)}
-                disabled={dashboardData.estado !== "EN PROCESO"} // Deshabilitar si no está activo
-            >
-                <QrCode className="w-5 h-5 mr-2" />
-                Agregar Cajas Individuales ({currentVerificationType})
-            </Button>
+            {/* Crear Tarima */}
+            <Card className="border-0 shadow-lg bg-card">
+                <CardHeader>
+                    <CardTitle className="text-xl flex items-center gap-2">
+                        <Layers className="w-5 h-5 text-primary" />
+                        Crear Tarima
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                        Cree una tarima activa para poder registrar cajas individuales.
+                    </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                    {createTarimaError && (
+                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            {createTarimaError}
+                        </div>
+                    )}
+                    {createTarimaSuccess && (
+                        <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            {createTarimaSuccess}
+                        </div>
+                    )}
+                    <Button
+                        className="w-full h-12 text-lg"
+                        onClick={handleCreateTarima}
+                        disabled={isCreatingTarima || dashboardData.estado !== "EN PROCESO"}
+                    >
+                        {isCreatingTarima ? "Creando..." : "Crear Tarima"}
+                    </Button>
+                </CardContent>
+            </Card>
 
-            {/* Botón para subir evidencia */}
-            <Button
-                variant="secondary"
-                className="w-full h-12 text-lg mt-3"
-                onClick={() => {
-                    setEvidenceError(null);
-                    setEvidenceSuccess(null);
-                    setIsEvidenceModalOpen(true);
-                }}
-                disabled={dashboardData.estado !== "EN PROCESO"}
-            >
-                <Upload className="w-5 h-5 mr-2" />
-                Agregar evidencia
-            </Button>
+            {/* Tarimas Activas */}
+            <Card className="border-0 shadow-lg bg-card">
+                <CardHeader>
+                    <CardTitle className="text-xl flex items-center gap-2">
+                        <Truck className="w-5 h-5 text-primary" />
+                        Tarimas Activas
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                        Seleccione una tarima para registrar cajas individuales. Si hay varias personas trabajando, use el boton de refrescar para ver cambios al instante.
+                    </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground bg-muted/40 px-3 py-1.5 rounded-full">
+                            Actualizacion compartida entre dispositivos
+                        </div>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                fetchTarimasActivas();
+                                fetchTarimasTerminadas();
+                            }}
+                            disabled={isTarimasLoading}
+                        >
+                            {isTarimasLoading ? "Actualizando..." : "Refrescar"}
+                        </Button>
+                    </div>
+                    {isTarimasLoading && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Cargando tarimas activas...
+                        </div>
+                    )}
+                    {tarimasError && (
+                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            {tarimasError}
+                        </div>
+                    )}
+                    {!isTarimasLoading && !tarimasError && tarimasActivas.length === 0 && (
+                        <div className="text-sm text-muted-foreground bg-muted/40 p-4 rounded-lg">
+                            No hay tarimas activas todavia. Cree una para comenzar.
+                        </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {tarimasActivas.map((tarima) => {
+                            const isSelected = selectedTarima?.tarimaId === tarima.tarimaId;
+                            const progress = tarima.meta > 0
+                                ? Math.min(100, (tarima.cajasLlevamos / tarima.meta) * 100)
+                                : 0;
+                            return (
+                                <button
+                                    type="button"
+                                    key={tarima.tarimaId}
+                                    onClick={() => setSelectedTarima(tarima)}
+                                    className={`rounded-xl border p-4 text-left transition hover:border-primary/50 hover:bg-primary/5 ${isSelected ? "border-primary bg-primary/10 shadow-sm ring-2 ring-primary/20" : "border-border bg-muted/30"}`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm text-muted-foreground">Tarima</p>
+                                            <p className="text-lg font-semibold">#{tarima.numeroTarima}</p>
+                                        </div>
+                                        <div className={`text-xs px-2 py-1 rounded-full ${isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                                            {isSelected ? "Seleccionada" : "Seleccionar"}
+                                        </div>
+                                    </div>
+                                    <div className="mt-3">
+                                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                            <span>{tarima.cajasLlevamos} / {tarima.meta} cajas</span>
+                                            <span>{Math.round(progress)}%</span>
+                                        </div>
+                                        <div className="mt-2 h-2 rounded-full bg-muted">
+                                            <div
+                                                className="h-2 rounded-full bg-primary transition"
+                                                style={{ width: `${progress}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <p className="mt-3 text-xs text-muted-foreground">Creada por: {tarima.usuarioCreo}</p>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {selectedTarima && (
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                            <div>
+                                <p className="text-xs text-muted-foreground">Tarima seleccionada</p>
+                                <p className="text-lg font-semibold">#{selectedTarima.numeroTarima}</p>
+                                <p className="text-xs text-muted-foreground">Cajas: {selectedTarima.cajasLlevamos} / {selectedTarima.meta}</p>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                                Continúe con el registro de cajas abajo.
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
 
-            <Button
-                variant="destructive"
-                className="w-full h-12 text-lg"
-                onClick={() => {
-                    setFinishError(null);
-                    setFinishSuccess(null);
-                    setIsFinishModalOpen(true);
-                }}
-                disabled={dashboardData.estado !== "EN PROCESO"}
-            >
-                <CheckSquare className="w-5 h-5 mr-2" />
-                Finalizar revisión
-            </Button>
-            
-            {/* Modal de Escaneo */}
-            {isScanModalOpen && (
-                <ModalComponent // ✅ COMPONENTE MODAL SELECCIONADO CONDICIONALMENTE
-                    verificacionId={verifiedIdNumber}
-                    onClose={() => setIsScanModalOpen(false)} 
-                    onSuccess={() => { 
-                        setIsScanModalOpen(false); 
-                        fetchDashboardData(); // RECARGAR para actualizar el Avance
-                    }}
-                />
+            {/* Tarimas Terminadas */}
+            <Card className="border-0 shadow-lg bg-card">
+                <CardHeader>
+                    <CardTitle className="text-xl flex items-center gap-2">
+                        <CheckSquare className="w-5 h-5 text-primary" />
+                        Tarimas Terminadas
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                        Resumen de tarimas cerradas y sus cajas registradas.
+                    </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {isTarimasTerminadasLoading && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Cargando tarimas terminadas...
+                        </div>
+                    )}
+                    {tarimasTerminadasError && (
+                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            {tarimasTerminadasError}
+                        </div>
+                    )}
+                    {!isTarimasTerminadasLoading && !tarimasTerminadasError && tarimasTerminadas.length === 0 && (
+                        <div className="text-sm text-muted-foreground bg-muted/40 p-4 rounded-lg">
+                            No hay tarimas terminadas todavia.
+                        </div>
+                    )}
+                    {tarimasTerminadas.map((tarima) => (
+                        <div key={tarima.tarimaId} className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Tarima cerrada</p>
+                                    <p className="text-lg font-semibold">#{tarima.numeroTarima}</p>
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    Cajas registradas: <span className="font-semibold text-foreground">{tarima.cajasRegistradas}</span>
+                                </div>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                                Cerrada por: {tarima.usuario} · {new Date(tarima.fechaCierre).toLocaleString()}
+                            </div>
+                            <div className="space-y-2">
+                                {tarima.cajas.map((caja) => (
+                                    <div key={caja.detalleId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3">
+                                        <div>
+                                            <p className="text-sm font-medium">{caja.identificador}</p>
+                                            <p className="text-xs text-muted-foreground">Cantidad: {caja.cantidad} · Auditadas: {caja.piezasAuditadas}</p>
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {caja.tieneDefectos ? "Con defectos" : "Sin defectos"}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </CardContent>
+            </Card>
+
+            {selectedTarima && (
+                <Card className="border-0 shadow-lg bg-card">
+                    <CardHeader>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <CardTitle className="text-xl">Agregar Caja Individual</CardTitle>
+                                <p className="text-sm text-muted-foreground">
+                                    Tarima seleccionada: #{selectedTarima.numeroTarima}
+                                </p>
+                            </div>
+                                <div className="text-xs bg-muted px-3 py-1 rounded-full text-muted-foreground">
+                                    Paso 2
+                                </div>
+                            </div>
+                    </CardHeader>
+                    <CardContent>
+                        <form onSubmit={handleRegisterScan} className="space-y-5">
+                            {currentVerificationType === "BIOFLEX" ? (
+                                <div className="space-y-2">
+                                    <Label htmlFor="trazabilidad">Trazabilidad</Label>
+                                    <Input
+                                        id="trazabilidad"
+                                        value={trazabilidadInput}
+                                        onChange={(e) => setTrazabilidadInput(e.target.value)}
+                                        placeholder="Escanee o ingrese la trazabilidad"
+                                        disabled={isRegisteringScan}
+                                    />
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <Label htmlFor="consecutivo">Consecutivo Manual</Label>
+                                    <Input
+                                        id="consecutivo"
+                                        type="number"
+                                        value={consecutivoManualInput}
+                                        onChange={(e) => setConsecutivoManualInput(e.target.value)}
+                                        placeholder="Ingrese el consecutivo manual"
+                                        disabled={isRegisteringScan}
+                                        min="1"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="qtyUomEtiqueta">Piezas por Caja (Qty UOM)</Label>
+                                    <Input
+                                        id="qtyUomEtiqueta"
+                                        value={qtyUomEtiquetaInput}
+                                        onChange={(e) => setQtyUomEtiquetaInput(e.target.value)}
+                                        placeholder="Ej. 1000"
+                                        disabled={isRegisteringScan}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="piezasAuditadas">Piezas Auditadas</Label>
+                                    <Input
+                                        id="piezasAuditadas"
+                                        type="number"
+                                        value={piezasAuditadasInput}
+                                        onChange={(e) => setPiezasAuditadasInput(e.target.value)}
+                                        placeholder="Ingrese piezas revisadas"
+                                        disabled={isRegisteringScan}
+                                        min="1"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        id="tieneDefectos"
+                                        type="checkbox"
+                                        className="h-4 w-4"
+                                        checked={tieneDefectosInput}
+                                        onChange={(e) => setTieneDefectosInput(e.target.checked)}
+                                        disabled={isRegisteringScan}
+                                    />
+                                    <Label htmlFor="tieneDefectos">Tiene defectos</Label>
+                                </div>
+
+                                {tieneDefectosInput && (
+                                    <div className="space-y-2">
+                                        <Label htmlFor="comentariosDefecto">Comentarios del defecto</Label>
+                                        <Textarea
+                                            id="comentariosDefecto"
+                                            value={comentariosDefectoInput}
+                                            onChange={(e) => setComentariosDefectoInput(e.target.value)}
+                                            placeholder="Describa el defecto encontrado"
+                                            disabled={isRegisteringScan}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {registerError && (
+                                <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {registerError}
+                                </div>
+                            )}
+
+                            {registerSuccess && (
+                                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {registerSuccess}
+                                </div>
+                            )}
+                            {registerStatusMessage && (
+                                <div className="text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg">
+                                    {registerStatusMessage}
+                                </div>
+                            )}
+
+                            <Button type="submit" className="w-full h-12 text-lg" disabled={isRegisteringScan}>
+                                {isRegisteringScan ? "Registrando..." : "Agregar caja individual"}
+                            </Button>
+                        </form>
+                        <div className="pt-4">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full h-12 text-lg"
+                                onClick={() => {
+                                    setCloseTarimaError(null);
+                                    setCloseTarimaSuccess(null);
+                                    setIsCloseTarimaModalOpen(true);
+                                }}
+                                disabled={dashboardData.estado !== "EN PROCESO"}
+                            >
+                                Terminar tarima
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             )}
 
-            {/* Modal de Evidencia */}
             {isEvidenceModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
                         <div className="flex justify-between items-center border-b pb-3">
                             <h3 className="text-xl font-bold flex items-center gap-2">
-                                <Upload className="w-5 h-5 text-primary" /> Subir evidencia
+                                <AlertCircle className="w-5 h-5 text-destructive" /> Evidencia de defectos
                             </h3>
                             <Button
                                 variant="ghost"
@@ -358,7 +984,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
 
                         <p className="text-muted-foreground text-sm">
-                            Seleccione una o varias fotos que respalden la verificación #{verifiedIdNumber}.
+                            Suba fotos para el detalle #{lastDetalleId}.
                         </p>
 
                         <form onSubmit={handleEvidenceSubmit} className="space-y-4">
@@ -370,6 +996,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     id="evidencias"
                                     type="file"
                                     accept="image/*"
+                                    capture="environment"
                                     multiple
                                     onChange={handleEvidenceFileChange}
                                     disabled={isEvidenceUploading}
@@ -425,6 +1052,100 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 </div>
             )}
 
+            {isCloseTarimaModalOpen && selectedTarima && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
+                        <div className="flex justify-between items-center border-b pb-3">
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                <Truck className="w-5 h-5 text-primary" /> Terminar tarima #{selectedTarima.numeroTarima}
+                            </h3>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsCloseTarimaModalOpen(false)}
+                                disabled={isClosingTarima}
+                            >
+                                &times;
+                            </Button>
+                        </div>
+
+                        <p className="text-muted-foreground text-sm">
+                            Indique el motivo por el cual se cierra la tarima.
+                        </p>
+
+                        <form onSubmit={handleCloseTarimaSubmit} className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="motivoTarima" className="text-card-foreground">
+                                    Motivo
+                                </Label>
+                                <Textarea
+                                    id="motivoTarima"
+                                    value={closeTarimaMotivo}
+                                    onChange={(e) => setCloseTarimaMotivo(e.target.value)}
+                                    placeholder="Ej. Tarima completa, cambio de orden, etc."
+                                    disabled={isClosingTarima}
+                                    required
+                                />
+                            </div>
+
+                            {closeTarimaError && (
+                                <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {closeTarimaError}
+                                </div>
+                            )}
+
+                            {closeTarimaSuccess && (
+                                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {closeTarimaSuccess}
+                                </div>
+                            )}
+
+                            <div className="flex gap-3 pt-2">
+                                <Button
+                                    type="submit"
+                                    className="flex-1"
+                                    disabled={isClosingTarima}
+                                >
+                                    {isClosingTarima ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Cerrando...
+                                        </>
+                                    ) : (
+                                        "Terminar tarima"
+                                    )}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="flex-1"
+                                    onClick={() => setIsCloseTarimaModalOpen(false)}
+                                    disabled={isClosingTarima}
+                                >
+                                    Cancelar
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            <Button
+                variant="destructive"
+                className="w-full h-12 text-lg"
+                onClick={() => {
+                    setFinishError(null);
+                    setFinishSuccess(null);
+                    setIsFinishModalOpen(true);
+                }}
+                disabled={dashboardData.estado !== "EN PROCESO"}
+            >
+                <CheckSquare className="w-5 h-5 mr-2" />
+                Finalizar revisión
+            </Button>
+
             {/* Modal para finalizar verificación */}
             {isFinishModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -457,20 +1178,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     value={finishMuestreo}
                                     onChange={(e) => setFinishMuestreo(e.target.value)}
                                     placeholder="Detalle del muestreo realizado"
-                                    disabled={isFinishing}
-                                    required
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="defectos" className="text-card-foreground">
-                                    Defectos encontrados
-                                </Label>
-                                <Textarea
-                                    id="defectos"
-                                    value={finishDefectos}
-                                    onChange={(e) => setFinishDefectos(e.target.value)}
-                                    placeholder="Describa los defectos detectados (si aplica)"
                                     disabled={isFinishing}
                                     required
                                 />

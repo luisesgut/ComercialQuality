@@ -1,22 +1,38 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useVerifications } from "@/lib/verification-context"
-import { PlusCircle, ClipboardList, CheckCircle2, Clock, ArrowRight, Loader2, AlertCircle } from "lucide-react"
+import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers } from "lucide-react"
 
 export function DashboardMenu() {
   const router = useRouter()
   const { getPendingVerifications, verifications, isLoading, error, fetchVerifications } = useVerifications()
+  const [todayLabel, setTodayLabel] = useState("")
 
   useEffect(() => {
     fetchVerifications()
   }, [])
 
+  useEffect(() => {
+    const formatToday = () => {
+      const formatter = new Intl.DateTimeFormat("es-MX", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+      setTodayLabel(formatter.format(new Date()).toUpperCase())
+    }
+
+    formatToday()
+    const intervalId = window.setInterval(formatToday, 60_000)
+    return () => window.clearInterval(intervalId)
+  }, [])
+
   const pendingCount = getPendingVerifications().length
-  const completedCount = verifications.filter((v) => v.status === "completed").length
 
   if (isLoading) {
     return (
@@ -51,11 +67,16 @@ export function DashboardMenu() {
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold text-foreground">Panel de Control</h2>
-        <p className="text-muted-foreground mt-1">Gestiona las verificaciones de productos BIOFLEX</p>
+        <p className="text-muted-foreground mt-1">Gestiona las verificaciones de producto terminado</p>
+        {todayLabel && (
+          <div className="inline-flex items-center gap-2 mt-3 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-foreground tracking-wide">
+            {todayLabel}
+          </div>
+        )}
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card className="border-0 shadow-md bg-card">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
@@ -73,26 +94,12 @@ export function DashboardMenu() {
         <Card className="border-0 shadow-md bg-card">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-success/10 flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6 text-success" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-card-foreground">{completedCount}</p>
-                <p className="text-sm text-muted-foreground">Completadas</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-md bg-card">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center">
-                <ClipboardList className="w-6 h-6 text-accent" />
+                <Layers className="w-6 h-6 text-accent" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-card-foreground">{verifications.length}</p>
-                <p className="text-sm text-muted-foreground">Total</p>
+                <p className="text-sm text-muted-foreground">Total en sistema</p>
               </div>
             </div>
           </CardContent>
