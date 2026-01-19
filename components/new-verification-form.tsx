@@ -572,20 +572,11 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                 <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
               </SelectTrigger>
               <SelectContent>
-                {mode === "destiny" ? (
-                  <>
-                    <SelectItem value="Sello lateral">Sello lateral</SelectItem>
-                    <SelectItem value="Sello lateral con zipper">Sello lateral con zipper</SelectItem>
-                    <SelectItem value="Wicket">Wicket</SelectItem>
-                    <SelectItem value="Wicket con zipper">Wicket con zipper</SelectItem>
-                    <SelectItem value="Pouch">Pouch</SelectItem>
-                  </>
-                ) : (
-                  <>
-                    <SelectItem value="Wicket">Wicket</SelectItem>
-                    <SelectItem value="Sello Lateral">Sello Lateral</SelectItem>
-                  </>
-                )}
+                <SelectItem value="Sello lateral">Sello lateral</SelectItem>
+                <SelectItem value="Sello lateral con zipper">Sello lateral con zipper</SelectItem>
+                <SelectItem value="Wicket">Wicket</SelectItem>
+                <SelectItem value="Wicket con zipper">Wicket con zipper</SelectItem>
+                <SelectItem value="Pouch">Pouch</SelectItem>
               </SelectContent>
             </Select>
           </div>
