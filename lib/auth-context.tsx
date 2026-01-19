@@ -5,13 +5,12 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 interface User {
   id: string
   name: string
-  email: string
   role: string
 }
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<boolean>
+  login: (userId: string, password: string) => Promise<boolean>
   logout: () => void
   isLoading: boolean
 }
@@ -22,27 +21,62 @@ const LOCAL_STORAGE_KEY = "auth_user"
 
 const DEMO_USERS: Array<User & { password: string }> = [
   {
-    id: "1",
-    name: "Administrador",
-    email: "admin@bioflex.com",
-    password: "admin123",
+    id: "0101",
+    name: "Administrador (Oliver)",
+    password: "0101",
     role: "Administrador",
   },
   {
-    id: "2",
-    name: "Inspector",
-    email: "inspector@bioflex.com",
-    password: "inspector123",
-    role: "Inspector de Calidad",
+    id: "2469",
+    name: "DIAZ BARAJAS GEMA KAREN",
+    password: "2469",
+    role: "Verificador",
   },
   {
-    id: "2",
-    name: "Inspector",
-    email: "test@bioflex.com",
-    password: "test123",
-    role: "Inspector de Calidad",
+    id: "3174",
+    name: "DURAN UGALDE MOISES DE JESUS",
+    password: "3174",
+    role: "Verificador",
+  },
+  {
+    id: "2719",
+    name: "ESCOTO RAZO SODD AGUSTIN",
+    password: "2719",
+    role: "Verificador",
+  },
+  {
+    id: "3205",
+    name: "GUTIERREZ RAMIREZ ULISES ISAAC",
+    password: "3205",
+    role: "Verificador",
+  },
+  {
+    id: "3178",
+    name: "SERVIN GONZALEZ JORGE LUIS",
+    password: "3178",
+    role: "Verificador",
+  },
+  {
+    id: "3195",
+    name: "BERMUDEZ SANCHEZ MARTIN ALFREDO",
+    password: "3195",
+    role: "Verificador",
+  },
+  {
+    id: "533",
+    name: "ORTEGA MARTINEZ ERIKA LUCIA",
+    password: "533",
+    role: "Verificador",
+  },
+  {
+    id: "3206",
+    name: "RAMIREZ RAMIREZ ERIK EDUARDO",
+    password: "3206",
+    role: "Verificador",
   },
 ]
+
+export const LOGIN_USERS: Array<User> = DEMO_USERS.map(({ password: _password, ...user }) => user)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -64,10 +98,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession()
   }, [])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (userId: string, password: string): Promise<boolean> => {
     try {
       const matchedUser = DEMO_USERS.find(
-        (demoUser) => demoUser.email === email.toLowerCase() && demoUser.password === password,
+        (demoUser) => demoUser.id === userId && demoUser.password === password,
       )
 
       if (matchedUser) {

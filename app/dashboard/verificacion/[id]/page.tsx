@@ -1,7 +1,7 @@
 // src/components/verification-detail.tsx
 "use client"
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 // Asegúrate de importar tus interfaces y componentes de UI
@@ -10,8 +10,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, ChevronsUpDown, Camera } from 'lucide-react';
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -47,8 +56,45 @@ interface TarimaTerminada {
     cajas: TarimaTerminadaCaja[];
 }
 
+const DEFECTO_OPTIONS = [
+    "Perforaciones en texto/ausentes",
+    "Etiqueta ausente",
+    "Cantidad de piezas incorrecta",
+    "Bolsa fuera de wicket",
+    "Bolsa pegada del sello lateral",
+    "Pestaña fuera de dimensiones",
+    "Sello contaminado",
+    "Bolsa dañada",
+    "Orificios de wicket movidos",
+    "Inocuidad (manchas u objetos dentro de cajas)",
+    "Rebaba en perforaciones",
+    "SELLO DÉBIL",
+    "Precorte duro o fuera de lugar",
+    "Sin tapones o carton wicket",
+    "Notas en cinta o caja",
+    "Precorte de wicket faltante",
+    "Restos de sello (huesillo)",
+    "Caja dañada",
+    "Fuelle desfasado",
+    "Mal refilado",
+    "Empalmes",
+    "BLOQUEO",
+    "ZIPPER DÉBIL",
+    "Bolsas desacomodadas",
+    "Zipper fuera de distancia",
+    "Fuelle deforme",
+    "Muestras equivocadas",
+    "Wicket alrevés",
+    "Etiqueta erronea",
+    "Desprendimiento de tinta",
+    "Sin tratado",
+];
+
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
+    const qtyUomVideoRef = useRef<HTMLVideoElement | null>(null);
+    const qtyUomStreamRef = useRef<MediaStream | null>(null);
+    const qtyUomRafRef = useRef<number | null>(null);
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -74,6 +120,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [registerSuccess, setRegisterSuccess] = useState<string | null>(null);
     const [registerStatusMessage, setRegisterStatusMessage] = useState<string | null>(null);
     const [lastDetalleId, setLastDetalleId] = useState<number | null>(null);
+    const [isDefectoOpen, setIsDefectoOpen] = useState(false);
     const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
     const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([]);
     const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
@@ -91,6 +138,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [finishError, setFinishError] = useState<string | null>(null);
     const [finishSuccess, setFinishSuccess] = useState<string | null>(null);
     const [isConsecutivoHelpOpen, setIsConsecutivoHelpOpen] = useState(false);
+    const [isPzasCajaHelpOpen, setIsPzasCajaHelpOpen] = useState(false);
+    const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
+    const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
     
     // Función para obtener los detalles del dashboard (GET a /dashboard/{id})
     const fetchDashboardData = async () => {
@@ -179,6 +229,81 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setCloseTarimaError(null);
         setCloseTarimaSuccess(null);
     }, [selectedTarima]);
+
+    const handleQtyUomCaptureClick = () => {
+        setQtyUomScanError(null);
+        setIsQtyUomScannerOpen(true);
+    };
+
+    useEffect(() => {
+        if (!isQtyUomScannerOpen) {
+            if (qtyUomRafRef.current !== null) {
+                cancelAnimationFrame(qtyUomRafRef.current);
+                qtyUomRafRef.current = null;
+            }
+            if (qtyUomStreamRef.current) {
+                qtyUomStreamRef.current.getTracks().forEach((track) => track.stop());
+                qtyUomStreamRef.current = null;
+            }
+            return;
+        }
+
+        const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+        if (!BarcodeDetectorCtor) {
+            setQtyUomScanError("Escaneo no disponible en este dispositivo.");
+            return;
+        }
+
+        let isCancelled = false;
+        const detector = new BarcodeDetectorCtor({
+            formats: ["code_128", "ean_13", "ean_8", "upc_a", "upc_e", "qr_code"],
+        });
+
+        const startScanner = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" } },
+                    audio: false,
+                });
+                if (isCancelled) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+                qtyUomStreamRef.current = stream;
+                if (qtyUomVideoRef.current) {
+                    qtyUomVideoRef.current.srcObject = stream;
+                    await qtyUomVideoRef.current.play();
+                }
+
+                const scanFrame = async () => {
+                    if (isCancelled || !qtyUomVideoRef.current) return;
+                    try {
+                        const barcodes = await detector.detect(qtyUomVideoRef.current);
+                        const rawValue = barcodes?.[0]?.rawValue ?? "";
+                        const numericValue = rawValue.replace(/\D/g, "");
+                        if (numericValue) {
+                            setQtyUomEtiquetaInput(numericValue);
+                            setIsQtyUomScannerOpen(false);
+                            return;
+                        }
+                    } catch {
+                        // keep scanning
+                    }
+                    qtyUomRafRef.current = requestAnimationFrame(scanFrame);
+                };
+
+                qtyUomRafRef.current = requestAnimationFrame(scanFrame);
+            } catch (scanError) {
+                setQtyUomScanError("No se pudo acceder a la camara.");
+            }
+        };
+
+        startScanner();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [isQtyUomScannerOpen]);
 
     const getVerificationType = (): "BIOFLEX" | "DESTINY" | "QUALITY" => {
         if (!dashboardData) return "BIOFLEX";
@@ -304,6 +429,24 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
+        const qtyUomValue = Number(qtyUomEtiquetaInput);
+        const piezasAuditadasValue = Number(piezasAuditadasInput);
+
+        if (!Number.isFinite(qtyUomValue) || qtyUomValue <= 0) {
+            setRegisterError("Las piezas por caja (Qty UOM) deben ser un número mayor a 0.");
+            return;
+        }
+
+        if (!Number.isFinite(piezasAuditadasValue) || piezasAuditadasValue <= 0) {
+            setRegisterError("Las piezas auditadas deben ser un número mayor a 0.");
+            return;
+        }
+
+        if (piezasAuditadasValue > qtyUomValue) {
+            setRegisterError("Las piezas auditadas no pueden ser mayores que las piezas por caja.");
+            return;
+        }
+
         if (tieneDefectosInput && !comentariosDefectoInput) {
             setRegisterError("Agregue comentarios del defecto.");
             return;
@@ -318,7 +461,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             consecutivoManual: isBioflex ? 0 : Number(consecutivoManualInput),
             qtyUomEtiqueta: qtyUomEtiquetaInput,
             tipoEtiqueta,
-            piezasAuditadas: Number(piezasAuditadasInput),
+            piezasAuditadas: piezasAuditadasValue,
             ...(tieneDefectosInput
                 ? { tieneDefectos: true, comentariosDefecto: comentariosDefectoInput }
                 : {}),
@@ -886,14 +1029,52 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="qtyUomEtiqueta">Piezas por Caja (Qty UOM)</Label>
-                                    <Input
-                                        id="qtyUomEtiqueta"
-                                        value={qtyUomEtiquetaInput}
-                                        onChange={(e) => setQtyUomEtiquetaInput(e.target.value)}
-                                        placeholder="Ej. 1000"
-                                        disabled={isRegisteringScan}
-                                    />
+                                    <div className="flex items-center gap-2">
+                                        <Label htmlFor="qtyUomEtiqueta">Piezas por Caja (Qty UOM)</Label>
+                                        {currentVerificationType === "DESTINY" && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-5 w-5"
+                                                onClick={() => setIsPzasCajaHelpOpen(true)}
+                                            >
+                                                <HelpCircle className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            id="qtyUomEtiqueta"
+                                            type="number"
+                                            value={qtyUomEtiquetaInput}
+                                            onChange={(e) => {
+                                                setQtyUomEtiquetaInput(e.target.value);
+                                                setQtyUomScanError(null);
+                                            }}
+                                            placeholder="Ej. 1000"
+                                            disabled={isRegisteringScan}
+                                            min="1"
+                                        />
+                                        {currentVerificationType === "DESTINY" && (
+                                            <>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="h-12 w-12"
+                                                    onClick={handleQtyUomCaptureClick}
+                                                    disabled={isRegisteringScan}
+                                                    aria-label="Escanear codigo de barras"
+                                                >
+                                                    <Camera className="h-5 w-5" />
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+                                    {qtyUomScanError && (
+                                        <p className="text-xs text-destructive">{qtyUomScanError}</p>
+                                    )}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="piezasAuditadas">Piezas Auditadas</Label>
@@ -905,7 +1086,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         placeholder="Ingrese piezas revisadas"
                                         disabled={isRegisteringScan}
                                         min="1"
+                                        max={
+                                            qtyUomEtiquetaInput && Number.isFinite(Number(qtyUomEtiquetaInput))
+                                                ? Number(qtyUomEtiquetaInput)
+                                                : undefined
+                                        }
                                     />
+                                    {qtyUomEtiquetaInput && Number.isFinite(Number(qtyUomEtiquetaInput)) && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Maximo permitido: {Number(qtyUomEtiquetaInput)}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -924,14 +1115,49 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                                 {tieneDefectosInput && (
                                     <div className="space-y-2">
-                                        <Label htmlFor="comentariosDefecto">Comentarios del defecto</Label>
-                                        <Textarea
-                                            id="comentariosDefecto"
-                                            value={comentariosDefectoInput}
-                                            onChange={(e) => setComentariosDefectoInput(e.target.value)}
-                                            placeholder="Describa el defecto encontrado"
-                                            disabled={isRegisteringScan}
-                                        />
+                                        <Label htmlFor="comentariosDefecto">Defecto</Label>
+                                        <Popover open={isDefectoOpen} onOpenChange={setIsDefectoOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    id="comentariosDefecto"
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    aria-expanded={isDefectoOpen}
+                                                    className="h-14 w-full justify-between text-base"
+                                                    disabled={isRegisteringScan}
+                                                >
+                                                    <span className="truncate">
+                                                        {comentariosDefectoInput || "Seleccione el defecto encontrado"}
+                                                    </span>
+                                                    <ChevronsUpDown className="ml-2 h-5 w-5 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                                <Command className="**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:py-3 [&_[cmdk-item]]:text-base">
+                                                    <CommandInput placeholder="Buscar defecto..." />
+                                                    <CommandList className="max-h-72">
+                                                        <CommandEmpty>No se encontraron defectos.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {DEFECTO_OPTIONS.map((defecto) => (
+                                                                <CommandItem
+                                                                    key={defecto}
+                                                                    value={defecto}
+                                                                    onSelect={(value) => {
+                                                                        setComentariosDefectoInput(value);
+                                                                        setIsDefectoOpen(false);
+                                                                    }}
+                                                                >
+                                                                    <Check
+                                                                        className={`mr-2 h-5 w-5 ${comentariosDefectoInput === defecto ? "opacity-100" : "opacity-0"}`}
+                                                                    />
+                                                                    {defecto}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                     </div>
                                 )}
                             </div>
@@ -960,6 +1186,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             </Button>
                         </form>
                         <div className="pt-4">
+                            {selectedTarima && selectedTarima.cajasLlevamos === 0 && (
+                                <p className="mb-2 text-sm text-muted-foreground">
+                                    Debe escanear al menos una caja para terminar la tarima.
+                                </p>
+                            )}
                             <Button
                                 type="button"
                                 variant="outline"
@@ -969,7 +1200,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     setCloseTarimaSuccess(null);
                                     setIsCloseTarimaModalOpen(true);
                                 }}
-                                disabled={dashboardData.estado !== "EN PROCESO"}
+                                disabled={
+                                    dashboardData.estado !== "EN PROCESO" ||
+                                    !selectedTarima ||
+                                    selectedTarima.cajasLlevamos === 0
+                                }
                             >
                                 Terminar tarima
                             </Button>
@@ -997,6 +1232,59 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 alt="Guia para consecutivo manual Destiny"
                                 className="max-h-[70vh] w-auto rounded-md border"
                             />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isPzasCajaHelpOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b pb-3">
+                            <h3 className="text-lg font-bold">Guia Piezas por Caja (Destiny)</h3>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsPzasCajaHelpOpen(false)}
+                            >
+                                &times;
+                            </Button>
+                        </div>
+                        <div className="flex justify-center">
+                            <img
+                                src="/guia-pzasCajaDestiny.jpg"
+                                alt="Guia de piezas por caja Destiny"
+                                className="max-h-[70vh] w-auto rounded-md border"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isQtyUomScannerOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b pb-3">
+                            <h3 className="text-lg font-bold">Escanear codigo de barras</h3>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsQtyUomScannerOpen(false)}
+                            >
+                                &times;
+                            </Button>
+                        </div>
+                        <div className="space-y-3">
+                            <video ref={qtyUomVideoRef} className="w-full rounded-lg border" />
+                            <p className="text-sm text-muted-foreground">
+                                Enfoque el codigo de barras para llenar el Qty UOM.
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                Nota: esta funcionalidad esta en proceso y puede no ser 100% certera.
+                            </p>
+                            {qtyUomScanError && (
+                                <p className="text-sm text-destructive">{qtyUomScanError}</p>
+                            )}
                         </div>
                     </div>
                 </div>
