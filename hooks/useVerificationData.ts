@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ConsolidateProductData, DestinyEtiquetaData } from "@/app/types/verification-types";
+import { classifyApiError, formatApiError } from "@/lib/api-error";
 
 // URL Base de tu API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -57,10 +58,14 @@ export function useVerificationData(): HookResult {
         // PASO 2: GET de Detalle de la Orden
         // ------------------------------------------------------------------
         const urlOrden = `${API_BASE_URL}/CatOrden/detalle?orden=${ordenSearch}&claveProducto=${claveProductoSearch}`;
-        const resOrden = await fetch(urlOrden);
-
+        let resOrden: Response;
+        try {
+            resOrden = await fetch(urlOrden);
+        } catch (err) {
+            throw classifyApiError(err, undefined, `orden ${ordenSearch}`);
+        }
         if (!resOrden.ok) {
-            throw new Error(`Error al obtener el detalle de la orden **${ordenSearch}**.`);
+            throw classifyApiError(new Error(`HTTP ${resOrden.status}`), resOrden.status, `orden ${ordenSearch}`);
         }
         const ordenData = await resOrden.json();
 
@@ -68,21 +73,28 @@ export function useVerificationData(): HookResult {
         // PASO 3: GET de Valores Técnicos
         // ------------------------------------------------------------------
         const urlValores = `${API_BASE_URL}/ValoresTecnicosIndividual/ByProducto/${claveProductoSearch}`;
-        const resValores = await fetch(urlValores);
-        
-        let valoresTecnicosData = null;
+        let resValores: Response;
+        try {
+            resValores = await fetch(urlValores);
+        } catch (err) {
+            throw classifyApiError(err, undefined, `producto ${claveProductoSearch}`);
+        }
 
+        let valoresTecnicosData = null;
         if (resValores.ok) {
             const valoresTecnicosArray = await resValores.json();
             if (valoresTecnicosArray && valoresTecnicosArray.length > 0) {
                 valoresTecnicosData = valoresTecnicosArray[0];
             }
-        } 
-        
-        // Si fallan los valores técnicos, ¿queremos detener todo? 
-        // Por ahora lanzamos error si es crítico, o permitimos null si es opcional.
-        // Asumiremos que son necesarios:
-        if (!valoresTecnicosData) throw new Error(`No se encontraron valores técnicos para **${claveProductoSearch}**.`);
+        }
+
+        if (!valoresTecnicosData) {
+            throw classifyApiError(
+                new Error("No encontrado"),
+                resValores.ok ? 404 : resValores.status,
+                `valores técnicos de ${claveProductoSearch}`
+            );
+        }
 
         // ------------------------------------------------------------------
         // CONSOLIDAR DATOS FINALES
@@ -108,16 +120,22 @@ export function useVerificationData(): HookResult {
 
     try {
         const urlEtiqueta = `${API_BASE_URL}/EtiquetaIndividual/individual/${trazabilityCode}`;
-        const resEtiqueta = await fetch(urlEtiqueta);
-        
-        if (!resEtiqueta.ok) throw new Error(`Trazabilidad **${trazabilityCode}** no encontrada.`);
+        let resEtiqueta: Response;
+        try {
+            resEtiqueta = await fetch(urlEtiqueta);
+        } catch (err) {
+            throw classifyApiError(err, undefined, `trazabilidad ${trazabilityCode}`);
+        }
+        if (!resEtiqueta.ok) {
+            throw classifyApiError(new Error(`HTTP ${resEtiqueta.status}`), resEtiqueta.status, `trazabilidad ${trazabilityCode}`);
+        }
         const etiquetaData = await resEtiqueta.json();
 
         await fetchComplementaryData(etiquetaData, 'BIOFLEX');
 
     } catch (err: any) {
         console.error("Error Bioflex:", err);
-        setError(err.message || "Error buscando Bioflex.");
+        setError(err.message || formatApiError({ type: "unknown", message: "Error buscando Bioflex.", hint: "Intente nuevamente." }));
     } finally {
         setIsFetching(false);
     }
@@ -132,19 +150,26 @@ export function useVerificationData(): HookResult {
 
     try {
         const urlDestiny = `${API_BASE_URL}/EtiquetaIndividual/destiny/search-by-shipping?ItemNo=${itemNo}&InventoryLot=${lot}&ShippingUnitID=${shippingId}`;
-        const response = await fetch(urlDestiny);
-        
-        if (!response.ok) throw new Error(`Error (${response.status}) buscando Destiny.`);
-        
+        let response: Response;
+        try {
+            response = await fetch(urlDestiny);
+        } catch (err) {
+            throw classifyApiError(err, undefined, `ItemNo ${itemNo}`);
+        }
+        if (!response.ok) {
+            throw classifyApiError(new Error(`HTTP ${response.status}`), response.status, `ItemNo ${itemNo} / Lot ${lot}`);
+        }
+
         const data: DestinyEtiquetaData = await response.json();
-        
-        if (!data || !data.prodEtiquetasDestiny) throw new Error("Respuesta de API Destiny incompleta.");
+        if (!data || !data.prodEtiquetasDestiny) {
+            throw classifyApiError(new Error("Respuesta incompleta"), 404, `ItemNo ${itemNo}`);
+        }
 
         await fetchComplementaryData(data, 'DESTINY');
 
     } catch (err: any) {
         console.error("Error Destiny:", err);
-        setError(err.message || "Error buscando Destiny.");
+        setError(err.message || formatApiError({ type: "unknown", message: "Error buscando Destiny.", hint: "Intente nuevamente." }));
     } finally {
         setIsFetching(false);
     }
@@ -159,13 +184,19 @@ export function useVerificationData(): HookResult {
 
     try {
         const urlQuality = `${API_BASE_URL}/EtiquetaIndividual/quality/search?u_po2=${encodeURIComponent(po2)}&u_itemNo=${encodeURIComponent(itemNo)}`;
-        const response = await fetch(urlQuality);
-
-        if (!response.ok) throw new Error(`Error (${response.status}) buscando Quality.`);
+        let response: Response;
+        try {
+            response = await fetch(urlQuality);
+        } catch (err) {
+            throw classifyApiError(err, undefined, `Lot ${po2} / Item ${itemNo}`);
+        }
+        if (!response.ok) {
+            throw classifyApiError(new Error(`HTTP ${response.status}`), response.status, `Lot ${po2} / Item ${itemNo}`);
+        }
 
         const data = await response.json();
         if (!Array.isArray(data) || data.length === 0) {
-          throw new Error("No se encontraron datos de Quality con esos parámetros.");
+            throw classifyApiError(new Error("Sin resultados"), 404, `Lot ${po2} / Item ${itemNo}`);
         }
 
         const first = data[0];
@@ -185,7 +216,7 @@ export function useVerificationData(): HookResult {
 
     } catch (err: any) {
         console.error("Error Quality:", err);
-        setError(err.message || "Error buscando Quality.");
+        setError(err.message || formatApiError({ type: "unknown", message: "Error buscando Quality.", hint: "Intente nuevamente." }));
     } finally {
         setIsFetching(false);
     }

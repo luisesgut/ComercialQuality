@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, type ReactNode } from "react"
+import { classifyApiError } from "@/lib/api-error"
 
 // =========================================================================
 // INTERFACES GLOBALES (Mantenerlas en un archivo separado como verification-types.ts es mejor)
@@ -16,6 +17,8 @@ export interface Verification {
   createdAt: string
   updatedAt: string
   inspector: string
+  cliente: string
+  notas?: string
   notes?: string
   checkpoints: {
     packaging: boolean | null
@@ -65,12 +68,19 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
         // --- 1. GET al endpoint de verificaciones activas ---
-        const activeResponse = await fetch(`${API_VERIFICATION_URL}/activas`);
-        
-        if (!activeResponse.ok) {
-            throw new Error(`Error (${activeResponse.status}) al cargar verificaciones activas.`);
+        let activeResponse: Response;
+        try {
+            activeResponse = await fetch(`${API_VERIFICATION_URL}/activas`);
+        } catch (err) {
+            const classified = classifyApiError(err);
+            throw new Error(`${classified.message} ${classified.hint}`);
         }
-        
+
+        if (!activeResponse.ok) {
+            const classified = classifyApiError(new Error(`HTTP ${activeResponse.status}`), activeResponse.status);
+            throw new Error(`${classified.message} ${classified.hint}`);
+        }
+
         const activeData: ActiveVerificationData[] = await activeResponse.json();
 
         // --- 2. MAPEO: Convertir el formato de la API a tu formato Verification ---
@@ -82,16 +92,16 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
 
             return {
                 id: String(apiVer.id),
-                // Mapeo de campos requeridos por tu UI
-                productName: `Lote ${apiVer.lote} / Prod ${apiVer.producto}`, // Combina datos
+                productName: `${apiVer.producto} — Lote ${apiVer.lote}`,
                 lotNumber: apiVer.lote,
-                expirationDate: apiVer.fechaInicio, // Usamos fechaInicio temporalmente
+                expirationDate: apiVer.fechaInicio,
                 status: status,
-                createdAt: apiVer.fechaInicio, // Usado para mostrar la fecha de inicio
+                createdAt: apiVer.fechaInicio,
                 updatedAt: new Date().toISOString(),
-                inspector: apiVer.cliente, // Usamos 'cliente' temporalmente como 'inspector'
-                notes: `Cliente: ${apiVer.cliente}. Tarimas: ${apiVer.avanceTarimas}`,
-                checkpoints: { 
+                inspector: "",
+                cliente: apiVer.cliente,
+                notes: `Tarimas avanzadas: ${apiVer.avanceTarimas}`,
+                checkpoints: {
                     packaging: null,
                     labeling: null,
                     sealing: null,
@@ -104,7 +114,7 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
 
     } catch (err) {
         console.error("Error en fetchVerifications:", err);
-        setError(err instanceof Error ? err.message : "Error desconocido de red.");
+        setError(err instanceof Error ? err.message : "Error inesperado. Intente nuevamente.");
         setVerifications([]);
     } finally {
       setIsLoading(false)

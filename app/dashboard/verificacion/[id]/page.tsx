@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 // Asegúrate de importar tus interfaces y componentes de UI
 import { DashboardData } from '@/app/types/verification-types'; 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -229,6 +230,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setCloseTarimaError(null);
         setCloseTarimaSuccess(null);
     }, [selectedTarima]);
+
+    // Sincronizar selectedTarima con los datos frescos de tarimasActivas.
+    // Sin esto, selectedTarima.cajasLlevamos queda como snapshot stale
+    // y el botón "Terminar tarima" permanece deshabilitado tras agregar la primera caja.
+    useEffect(() => {
+        if (!selectedTarima) return;
+        const updated = tarimasActivas.find((t) => t.tarimaId === selectedTarima.tarimaId);
+        if (updated && updated.cajasLlevamos !== selectedTarima.cajasLlevamos) {
+            setSelectedTarima(updated);
+        }
+    }, [tarimasActivas]);
 
     const handleQtyUomCaptureClick = () => {
         setQtyUomScanError(null);
@@ -705,160 +717,137 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     };
     
     return (
-        <div className="max-w-4xl mx-auto space-y-8">
-            
-            {/* Header y Navegación */}
-            <div className="flex items-center gap-4">
-                <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/pendientes")}>
-                    <ArrowLeft className="h-5 w-5" />
+        <div className="max-w-4xl mx-auto space-y-6 pb-8">
+
+            {/* Header */}
+            <div className="flex items-start gap-3">
+                <Button variant="ghost" size="icon" className="h-12 w-12 shrink-0 mt-0.5" onClick={() => router.push("/dashboard/pendientes")}>
+                    <ArrowLeft className="h-6 w-6" />
                 </Button>
-                <div>
-                    <h1 className="text-3xl font-bold text-foreground">Verificación #{dashboardData.verificacionId}</h1>
-                    <p className="text-muted-foreground">Estado: **{dashboardData.estado}**</p>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wide ${
+                            dashboardData.estado === "EN PROCESO" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                        }`}>
+                            {dashboardData.estado}
+                        </span>
+                        <span className="text-xs text-muted-foreground">#{dashboardData.verificacionId}</span>
+                    </div>
+                    <h1 className="text-xl font-bold text-foreground mt-1 leading-tight">{dashboardData.productoInfo}</h1>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                        Lote: <span className="font-semibold text-foreground">{dashboardData.loteOrden}</span>
+                        {" · "}Cliente: <span className="font-semibold text-foreground">{dashboardData.cliente}</span>
+                    </p>
                 </div>
             </div>
 
-            {/* Información Principal del Lote */}
-            <Card className="shadow-lg">
-                <CardHeader>
-                    <div className='flex items-center gap-3'>
-                         <Hash className="w-6 h-6 text-primary" />
-                         <CardTitle className="text-xl">Lote/Orden: {dashboardData.loteOrden}</CardTitle>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 ml-9">
-                        <p className="text-sm text-muted-foreground">Producto Info: {dashboardData.productoInfo}</p>
-                        <span className="text-xs text-muted-foreground">•</span>
-                        <span className="text-sm font-semibold text-foreground">{dashboardData.cliente}</span>
-                    </div>
-                </CardHeader>
-            </Card>
-
-            {/* Tarjetas de Avance (KPIs) */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="text-center">
-                    <CardHeader className="pb-2">
-                        <TrendingUp className="w-5 h-5 text-green-500 mx-auto" />
-                        <p className="text-xs text-muted-foreground">Avance</p>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-3xl font-bold text-green-600">{dashboardData.porcentajeAvance}%</p>
+            {/* KPIs */}
+            <div className="space-y-3">
+                <Card className="border-0 shadow-md bg-card">
+                    <CardContent className="p-5">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <TrendingUp className="w-5 h-5 text-primary" />
+                                <span className="font-semibold text-foreground">Avance general</span>
+                            </div>
+                            <span className="text-4xl font-bold text-primary">{dashboardData.porcentajeAvance}%</span>
+                        </div>
+                        <div className="h-4 rounded-full bg-muted overflow-hidden">
+                            <div
+                                className="h-full rounded-full bg-primary transition-all duration-500"
+                                style={{ width: `${dashboardData.porcentajeAvance}%` }}
+                            />
+                        </div>
                     </CardContent>
                 </Card>
-                
-                <Card className="text-center">
-                    <CardHeader className="pb-2">
-                        <Package className="w-5 h-5 text-blue-500 mx-auto" />
-                        <p className="text-xs text-muted-foreground">Cajas Registradas</p>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-xl font-bold">{dashboardData.cajasActuales}</p>
-                        <p className="text-xs text-muted-foreground">({dashboardData.piezasActuales} pz)</p>
-                    </CardContent>
-                </Card>
-
-                <Card className="text-center">
-                    <CardHeader className="pb-2">
-                        <Truck className="w-5 h-5 text-orange-500 mx-auto" />
-                        <p className="text-xs text-muted-foreground">Tarimas Actuales</p>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-xl font-bold">{dashboardData.tarimasActuales}</p>
-                        <p className="text-xs text-muted-foreground">({dashboardData.tarimasTotalesEstimadas} estimadas)</p>
-                    </CardContent>
-                </Card>
-                
-                <Card className="text-center">
-                    <CardHeader className="pb-2">
-                        <Clock className="w-5 h-5 text-gray-500 mx-auto" />
-                        <p className="text-xs text-muted-foreground">Tiempo (min)</p>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-xl font-bold">{dashboardData.tiempoTranscurridoMinutos}</p>
-                    </CardContent>
-                </Card>
+                <div className="grid grid-cols-3 gap-3">
+                    <Card className="border-0 shadow-md bg-card text-center">
+                        <CardContent className="p-4">
+                            <Package className="w-5 h-5 text-blue-500 mx-auto mb-1" />
+                            <p className="text-2xl font-bold">{dashboardData.cajasActuales}</p>
+                            <p className="text-xs text-muted-foreground">Cajas · {dashboardData.piezasActuales} pz</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="border-0 shadow-md bg-card text-center">
+                        <CardContent className="p-4">
+                            <Truck className="w-5 h-5 text-orange-500 mx-auto mb-1" />
+                            <p className="text-2xl font-bold">
+                                {dashboardData.tarimasActuales}
+                                <span className="text-sm font-normal text-muted-foreground">/{dashboardData.tarimasTotalesEstimadas}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">Tarimas</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="border-0 shadow-md bg-card text-center">
+                        <CardContent className="p-4">
+                            <Clock className="w-5 h-5 text-muted-foreground mx-auto mb-1" />
+                            <p className="text-2xl font-bold">{dashboardData.tiempoTranscurridoMinutos}</p>
+                            <p className="text-xs text-muted-foreground">Min</p>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
             
-            {/* Crear Tarima */}
+            {/* PASO 1: Seleccionar Tarima */}
             <Card className="border-0 shadow-lg bg-card">
-                <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2">
-                        <Layers className="w-5 h-5 text-primary" />
-                        Crear Tarima
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                        Cree una tarima activa para poder registrar cajas individuales.
-                    </p>
+                <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-base shrink-0">
+                                1
+                            </div>
+                            <div>
+                                <CardTitle className="text-lg">Seleccionar Tarima</CardTitle>
+                                <p className="text-xs text-muted-foreground mt-0.5">Cree o elija una tarima activa</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => { fetchTarimasActivas(); fetchTarimasTerminadas(); }}
+                                disabled={isTarimasLoading}
+                                className="h-10 px-3 text-sm"
+                            >
+                                {isTarimasLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refrescar"}
+                            </Button>
+                            <Button
+                                className="h-10 px-4 text-sm font-semibold"
+                                onClick={handleCreateTarima}
+                                disabled={isCreatingTarima || dashboardData.estado !== "EN PROCESO"}
+                            >
+                                {isCreatingTarima ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />Creando...</> : "+ Nueva Tarima"}
+                            </Button>
+                        </div>
+                    </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="space-y-4">
                     {createTarimaError && (
                         <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                            <AlertCircle className="w-4 h-4" />
+                            <AlertCircle className="w-4 h-4 shrink-0" />
                             {createTarimaError}
                         </div>
                     )}
                     {createTarimaSuccess && (
-                        <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
-                            <AlertCircle className="w-4 h-4" />
+                        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-100 p-3 rounded-lg">
+                            <CheckSquare className="w-4 h-4 shrink-0" />
                             {createTarimaSuccess}
-                        </div>
-                    )}
-                    <Button
-                        className="w-full h-12 text-lg"
-                        onClick={handleCreateTarima}
-                        disabled={isCreatingTarima || dashboardData.estado !== "EN PROCESO"}
-                    >
-                        {isCreatingTarima ? "Creando..." : "Crear Tarima"}
-                    </Button>
-                </CardContent>
-            </Card>
-
-            {/* Tarimas Activas */}
-            <Card className="border-0 shadow-lg bg-card">
-                <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2">
-                        <Truck className="w-5 h-5 text-primary" />
-                        Tarimas Activas
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                        Seleccione una tarima para registrar cajas individuales. Si hay varias personas trabajando, use el boton de refrescar para ver cambios al instante.
-                    </p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs text-muted-foreground bg-muted/40 px-3 py-1.5 rounded-full">
-                            Actualizacion compartida entre dispositivos
-                        </div>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                                fetchTarimasActivas();
-                                fetchTarimasTerminadas();
-                            }}
-                            disabled={isTarimasLoading}
-                        >
-                            {isTarimasLoading ? "Actualizando..." : "Refrescar"}
-                        </Button>
-                    </div>
-                    {isTarimasLoading && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Cargando tarimas activas...
                         </div>
                     )}
                     {tarimasError && (
                         <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                            <AlertCircle className="w-4 h-4" />
+                            <AlertCircle className="w-4 h-4 shrink-0" />
                             {tarimasError}
                         </div>
                     )}
                     {!isTarimasLoading && !tarimasError && tarimasActivas.length === 0 && (
-                        <div className="text-sm text-muted-foreground bg-muted/40 p-4 rounded-lg">
-                            No hay tarimas activas todavia. Cree una para comenzar.
+                        <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+                            <Truck className="w-10 h-10 opacity-25" />
+                            <p className="text-sm">No hay tarimas activas. Pulse "+ Nueva Tarima".</p>
                         </div>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {tarimasActivas.map((tarima) => {
                             const isSelected = selectedTarima?.tarimaId === tarima.tarimaId;
                             const progress = tarima.meta > 0
@@ -869,65 +858,64 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     type="button"
                                     key={tarima.tarimaId}
                                     onClick={() => setSelectedTarima(tarima)}
-                                    className={`rounded-xl border p-4 text-left transition hover:border-primary/50 hover:bg-primary/5 ${isSelected ? "border-primary bg-primary/10 shadow-sm ring-2 ring-primary/20" : "border-border bg-muted/30"}`}
+                                    className={`rounded-xl border-2 p-5 text-left transition-all active:scale-[0.98] ${
+                                        isSelected
+                                            ? "border-primary bg-primary/10 shadow-md"
+                                            : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
+                                    }`}
                                 >
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-start justify-between mb-3">
                                         <div>
-                                            <p className="text-sm text-muted-foreground">Tarima</p>
-                                            <p className="text-lg font-semibold">#{tarima.numeroTarima}</p>
+                                            <p className="text-xs text-muted-foreground uppercase tracking-wide">Tarima</p>
+                                            <p className="text-3xl font-bold mt-0.5">#{tarima.numeroTarima}</p>
                                         </div>
-                                        <div className={`text-xs px-2 py-1 rounded-full ${isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                                            {isSelected ? "Seleccionada" : "Seleccionar"}
+                                        <div className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold ${
+                                            isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                                        }`}>
+                                            {isSelected && <Check className="w-3 h-3" />}
+                                            {isSelected ? "Activa" : "Seleccionar"}
                                         </div>
                                     </div>
-                                    <div className="mt-3">
-                                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between text-sm font-medium">
                                             <span>{tarima.cajasLlevamos} / {tarima.meta} cajas</span>
-                                            <span>{Math.round(progress)}%</span>
+                                            <span className="text-primary font-bold">{Math.round(progress)}%</span>
                                         </div>
-                                        <div className="mt-2 h-2 rounded-full bg-muted">
+                                        <div className="h-3 rounded-full bg-muted overflow-hidden">
                                             <div
-                                                className="h-2 rounded-full bg-primary transition"
+                                                className="h-full rounded-full bg-primary transition-all"
                                                 style={{ width: `${progress}%` }}
                                             />
                                         </div>
                                     </div>
-                                    <p className="mt-3 text-xs text-muted-foreground">Creada por: {tarima.usuarioCreo}</p>
+                                    <p className="mt-3 text-xs text-muted-foreground">Por: {tarima.usuarioCreo}</p>
                                 </button>
                             );
                         })}
                     </div>
-                    {selectedTarima && (
-                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                            <div>
-                                <p className="text-xs text-muted-foreground">Tarima seleccionada</p>
-                                <p className="text-lg font-semibold">#{selectedTarima.numeroTarima}</p>
-                                <p className="text-xs text-muted-foreground">Cajas: {selectedTarima.cajasLlevamos} / {selectedTarima.meta}</p>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                                Continúe con el registro de cajas abajo.
-                            </div>
-                        </div>
-                    )}
                 </CardContent>
             </Card>
 
             {/* Tarimas Terminadas */}
             <Card className="border-0 shadow-lg bg-card">
-                <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2">
-                        <CheckSquare className="w-5 h-5 text-primary" />
-                        Tarimas Terminadas
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                        Resumen de tarimas cerradas y sus cajas registradas.
-                    </p>
+                <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <CheckSquare className="w-5 h-5 text-primary" />
+                            Tarimas Terminadas
+                        </CardTitle>
+                        {tarimasTerminadas.length > 0 && (
+                            <span className="text-sm font-semibold bg-primary/10 text-primary px-3 py-1 rounded-full">
+                                {tarimasTerminadas.length} tarima{tarimasTerminadas.length !== 1 ? "s" : ""}
+                            </span>
+                        )}
+                    </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent>
                     {isTarimasTerminadasLoading && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            Cargando tarimas terminadas...
+                            Cargando...
                         </div>
                     )}
                     {tarimasTerminadasError && (
@@ -937,64 +925,90 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
                     )}
                     {!isTarimasTerminadasLoading && !tarimasTerminadasError && tarimasTerminadas.length === 0 && (
-                        <div className="text-sm text-muted-foreground bg-muted/40 p-4 rounded-lg">
-                            No hay tarimas terminadas todavia.
-                        </div>
+                        <p className="text-sm text-muted-foreground py-2">Sin tarimas terminadas todavía.</p>
                     )}
-                    {tarimasTerminadas.map((tarima) => (
-                        <div key={tarima.tarimaId} className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                    <p className="text-sm text-muted-foreground">Tarima cerrada</p>
-                                    <p className="text-lg font-semibold">#{tarima.numeroTarima}</p>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Cajas registradas: <span className="font-semibold text-foreground">{tarima.cajasRegistradas}</span>
-                                </div>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                                Cerrada por: {tarima.usuario} · {new Date(tarima.fechaCierre).toLocaleString()}
-                            </div>
-                            <div className="space-y-2">
-                                {tarima.cajas.map((caja) => (
-                                    <div key={caja.detalleId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3">
-                                        <div>
-                                            <p className="text-sm font-medium">{caja.identificador}</p>
-                                            <p className="text-xs text-muted-foreground">Cantidad: {caja.cantidad} · Auditadas: {caja.piezasAuditadas}</p>
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                            {caja.tieneDefectos ? "Con defectos" : "Sin defectos"}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
+                    {tarimasTerminadas.length > 0 && (
+                        <Accordion type="single" collapsible className="space-y-2">
+                            {tarimasTerminadas.map((tarima) => {
+                                const defectCount = tarima.cajas.filter((c) => c.tieneDefectos).length;
+                                return (
+                                    <AccordionItem
+                                        key={tarima.tarimaId}
+                                        value={String(tarima.tarimaId)}
+                                        className="rounded-xl border border-border bg-muted/20 overflow-hidden px-0"
+                                    >
+                                        <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&>svg]:shrink-0">
+                                            <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                                                <CheckSquare className="w-4 h-4 text-primary shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-bold text-base">Tarima #{tarima.numeroTarima}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {tarima.cajasRegistradas} cajas · {tarima.usuario}
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0 mr-2">
+                                                    <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                                                        {tarima.cajasRegistradas} cj
+                                                    </span>
+                                                    {defectCount > 0 && (
+                                                        <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full">
+                                                            {defectCount} def
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </AccordionTrigger>
+                                        <AccordionContent className="px-0 pb-0">
+                                            <div className="px-4 pb-2 text-xs text-muted-foreground border-t border-border pt-2">
+                                                Cerrada: {new Date(tarima.fechaCierre).toLocaleString()}
+                                            </div>
+                                            <div className="divide-y divide-border">
+                                                {tarima.cajas.map((caja) => (
+                                                    <div key={caja.detalleId} className="flex items-center justify-between gap-3 px-4 py-3">
+                                                        <div>
+                                                            <p className="font-medium text-sm">{caja.identificador}</p>
+                                                            <p className="text-xs text-muted-foreground">{caja.cantidad} pz · {caja.piezasAuditadas} auditadas</p>
+                                                        </div>
+                                                        {caja.tieneDefectos && (
+                                                            <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full shrink-0">
+                                                                Defecto
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                );
+                            })}
+                        </Accordion>
+                    )}
                 </CardContent>
             </Card>
 
             {selectedTarima && (
-                <Card className="border-0 shadow-lg bg-card">
-                    <CardHeader>
-                        <div className="flex items-center justify-between gap-3">
+                <Card className="border-2 border-primary/30 shadow-xl bg-card">
+                    <CardHeader className="pb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-base shrink-0">
+                                2
+                            </div>
                             <div>
-                                <CardTitle className="text-xl">Agregar Caja Individual</CardTitle>
-                                <p className="text-sm text-muted-foreground">
-                                    Tarima seleccionada: #{selectedTarima.numeroTarima}
+                                <CardTitle className="text-lg">Registrar Caja</CardTitle>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Tarima #{selectedTarima.numeroTarima} · {selectedTarima.cajasLlevamos} / {selectedTarima.meta} cajas registradas
                                 </p>
                             </div>
-                                <div className="text-xs bg-muted px-3 py-1 rounded-full text-muted-foreground">
-                                    Paso 2
-                                </div>
-                            </div>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleRegisterScan} className="space-y-5">
                             {currentVerificationType === "BIOFLEX" ? (
                                 <div className="space-y-2">
-                                    <Label htmlFor="trazabilidad">Trazabilidad</Label>
+                                    <Label htmlFor="trazabilidad" className="text-base font-medium">Trazabilidad</Label>
                                     <Input
                                         id="trazabilidad"
+                                        className="h-14 text-base"
                                         value={trazabilidadInput}
                                         onChange={(e) => setTrazabilidadInput(e.target.value)}
                                         placeholder="Escanee o ingrese la trazabilidad"
@@ -1004,12 +1018,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             ) : (
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-2">
-                                        <Label htmlFor="consecutivo">Consecutivo Manual</Label>
+                                        <Label htmlFor="consecutivo" className="text-base font-medium">Consecutivo Manual</Label>
                                         <Button
                                             type="button"
                                             variant="ghost"
                                             size="icon"
-                                            className="h-5 w-5"
+                                            className="h-6 w-6"
                                             onClick={() => setIsConsecutivoHelpOpen(true)}
                                         >
                                             <HelpCircle className="h-4 w-4" />
@@ -1018,6 +1032,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     <Input
                                         id="consecutivo"
                                         type="number"
+                                        inputMode="numeric"
+                                        className="h-14 text-base"
                                         value={consecutivoManualInput}
                                         onChange={(e) => setConsecutivoManualInput(e.target.value)}
                                         placeholder="Ingrese el consecutivo manual"
@@ -1027,16 +1043,16 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-2">
-                                        <Label htmlFor="qtyUomEtiqueta">Piezas por Caja (Qty UOM)</Label>
+                                        <Label htmlFor="qtyUomEtiqueta" className="text-base font-medium">Piezas por Caja</Label>
                                         {currentVerificationType === "DESTINY" && (
                                             <Button
                                                 type="button"
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-5 w-5"
+                                                className="h-6 w-6"
                                                 onClick={() => setIsPzasCajaHelpOpen(true)}
                                             >
                                                 <HelpCircle className="h-4 w-4" />
@@ -1047,6 +1063,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         <Input
                                             id="qtyUomEtiqueta"
                                             type="number"
+                                            inputMode="numeric"
+                                            className="h-14 text-base flex-1"
                                             value={qtyUomEtiquetaInput}
                                             onChange={(e) => {
                                                 setQtyUomEtiquetaInput(e.target.value);
@@ -1057,19 +1075,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             min="1"
                                         />
                                         {currentVerificationType === "DESTINY" && (
-                                            <>
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="icon"
-                                                    className="h-12 w-12"
-                                                    onClick={handleQtyUomCaptureClick}
-                                                    disabled={isRegisteringScan}
-                                                    aria-label="Escanear codigo de barras"
-                                                >
-                                                    <Camera className="h-5 w-5" />
-                                                </Button>
-                                            </>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-14 w-14 shrink-0"
+                                                onClick={handleQtyUomCaptureClick}
+                                                disabled={isRegisteringScan}
+                                                aria-label="Escanear codigo de barras"
+                                            >
+                                                <Camera className="h-5 w-5" />
+                                            </Button>
                                         )}
                                     </div>
                                     {qtyUomScanError && (
@@ -1077,13 +1093,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     )}
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="piezasAuditadas">Piezas Auditadas</Label>
+                                    <Label htmlFor="piezasAuditadas" className="text-base font-medium">Piezas Auditadas</Label>
                                     <Input
                                         id="piezasAuditadas"
                                         type="number"
+                                        inputMode="numeric"
+                                        className="h-14 text-base"
                                         value={piezasAuditadasInput}
                                         onChange={(e) => setPiezasAuditadasInput(e.target.value)}
-                                        placeholder="Ingrese piezas revisadas"
+                                        placeholder="Piezas revisadas"
                                         disabled={isRegisteringScan}
                                         min="1"
                                         max={
@@ -1094,28 +1112,40 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     />
                                     {qtyUomEtiquetaInput && Number.isFinite(Number(qtyUomEtiquetaInput)) && (
                                         <p className="text-xs text-muted-foreground">
-                                            Maximo permitido: {Number(qtyUomEtiquetaInput)}
+                                            Máximo: {Number(qtyUomEtiquetaInput)}
                                         </p>
                                     )}
                                 </div>
                             </div>
 
-                            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        id="tieneDefectos"
-                                        type="checkbox"
-                                        className="h-4 w-4"
-                                        checked={tieneDefectosInput}
-                                        onChange={(e) => setTieneDefectosInput(e.target.checked)}
-                                        disabled={isRegisteringScan}
-                                    />
-                                    <Label htmlFor="tieneDefectos">Tiene defectos</Label>
-                                </div>
-
+                            {/* Toggle defectos */}
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => { if (!isRegisteringScan) setTieneDefectosInput(!tieneDefectosInput); }}
+                                    className={`w-full flex items-center justify-between rounded-xl border-2 p-4 text-left transition-colors ${
+                                        tieneDefectosInput
+                                            ? "border-destructive bg-destructive/10"
+                                            : "border-border bg-muted/30 hover:border-muted-foreground/30"
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                            tieneDefectosInput ? "border-destructive bg-destructive" : "border-muted-foreground/40"
+                                        }`}>
+                                            {tieneDefectosInput && <Check className="w-4 h-4 text-destructive-foreground" />}
+                                        </div>
+                                        <span className={`font-semibold text-base ${tieneDefectosInput ? "text-destructive" : "text-foreground"}`}>
+                                            Tiene defectos
+                                        </span>
+                                    </div>
+                                    <span className="text-sm text-muted-foreground font-medium">
+                                        {tieneDefectosInput ? "Sí" : "No"}
+                                    </span>
+                                </button>
                                 {tieneDefectosInput && (
-                                    <div className="space-y-2">
-                                        <Label htmlFor="comentariosDefecto">Defecto</Label>
+                                    <div className="mt-3 space-y-2">
+                                        <Label htmlFor="comentariosDefecto" className="text-base font-medium">Tipo de Defecto</Label>
                                         <Popover open={isDefectoOpen} onOpenChange={setIsDefectoOpen}>
                                             <PopoverTrigger asChild>
                                                 <Button
@@ -1123,7 +1153,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     variant="outline"
                                                     role="combobox"
                                                     aria-expanded={isDefectoOpen}
-                                                    className="h-14 w-full justify-between text-base"
+                                                    className="h-14 w-full justify-between text-base border-2"
                                                     disabled={isRegisteringScan}
                                                 >
                                                     <span className="truncate">
@@ -1164,14 +1194,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                             {registerError && (
                                 <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                                    <AlertCircle className="w-4 h-4" />
+                                    <AlertCircle className="w-4 h-4 shrink-0" />
                                     {registerError}
                                 </div>
                             )}
-
                             {registerSuccess && (
-                                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
-                                    <AlertCircle className="w-4 h-4" />
+                                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-100 p-3 rounded-lg">
+                                    <CheckSquare className="w-4 h-4 shrink-0" />
                                     {registerSuccess}
                                 </div>
                             )}
@@ -1181,34 +1210,40 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </div>
                             )}
 
-                            <Button type="submit" className="w-full h-12 text-lg" disabled={isRegisteringScan}>
-                                {isRegisteringScan ? "Registrando..." : "Agregar caja individual"}
+                            <Button type="submit" className="w-full h-16 text-xl font-semibold" disabled={isRegisteringScan}>
+                                {isRegisteringScan ? (
+                                    <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Registrando...</>
+                                ) : (
+                                    "Agregar Caja"
+                                )}
                             </Button>
+
+                            <div className="pt-1 border-t border-border">
+                                {selectedTarima.cajasLlevamos === 0 && (
+                                    <p className="pt-3 mb-2 text-sm text-muted-foreground text-center">
+                                        Registre al menos una caja para terminar la tarima.
+                                    </p>
+                                )}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full h-14 text-base font-semibold border-2 mt-3"
+                                    onClick={() => {
+                                        setCloseTarimaError(null);
+                                        setCloseTarimaSuccess(null);
+                                        setIsCloseTarimaModalOpen(true);
+                                    }}
+                                    disabled={
+                                        dashboardData.estado !== "EN PROCESO" ||
+                                        !selectedTarima ||
+                                        selectedTarima.cajasLlevamos === 0
+                                    }
+                                >
+                                    <Truck className="w-5 h-5 mr-2" />
+                                    Terminar Tarima #{selectedTarima.numeroTarima}
+                                </Button>
+                            </div>
                         </form>
-                        <div className="pt-4">
-                            {selectedTarima && selectedTarima.cajasLlevamos === 0 && (
-                                <p className="mb-2 text-sm text-muted-foreground">
-                                    Debe escanear al menos una caja para terminar la tarima.
-                                </p>
-                            )}
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="w-full h-12 text-lg"
-                                onClick={() => {
-                                    setCloseTarimaError(null);
-                                    setCloseTarimaSuccess(null);
-                                    setIsCloseTarimaModalOpen(true);
-                                }}
-                                disabled={
-                                    dashboardData.estado !== "EN PROCESO" ||
-                                    !selectedTarima ||
-                                    selectedTarima.cajasLlevamos === 0
-                                }
-                            >
-                                Terminar tarima
-                            </Button>
-                        </div>
                     </CardContent>
                 </Card>
             )}
@@ -1349,7 +1384,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div className="flex gap-3 pt-2">
                                 <Button
                                     type="submit"
-                                    className="flex-1"
+                                    className="flex-1 h-14 text-base"
                                     disabled={isEvidenceUploading || !selectedEvidenceFiles.length}
                                 >
                                     {isEvidenceUploading ? (
@@ -1364,7 +1399,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="flex-1"
+                                    className="flex-1 h-14 text-base"
                                     onClick={() => setIsEvidenceModalOpen(false)}
                                     disabled={isEvidenceUploading}
                                 >
@@ -1429,7 +1464,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div className="flex gap-3 pt-2">
                                 <Button
                                     type="submit"
-                                    className="flex-1"
+                                    className="flex-1 h-14 text-base"
                                     disabled={isClosingTarima}
                                 >
                                     {isClosingTarima ? (
@@ -1444,7 +1479,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="flex-1"
+                                    className="flex-1 h-14 text-base"
                                     onClick={() => setIsCloseTarimaModalOpen(false)}
                                     disabled={isClosingTarima}
                                 >
@@ -1456,19 +1491,21 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 </div>
             )}
 
-            <Button
-                variant="destructive"
-                className="w-full h-12 text-lg"
-                onClick={() => {
-                    setFinishError(null);
-                    setFinishSuccess(null);
-                    setIsFinishModalOpen(true);
-                }}
-                disabled={dashboardData.estado !== "EN PROCESO"}
-            >
-                <CheckSquare className="w-5 h-5 mr-2" />
-                Finalizar revisión
-            </Button>
+            <div className="pt-2">
+                <Button
+                    variant="destructive"
+                    className="w-full h-16 text-xl font-semibold"
+                    onClick={() => {
+                        setFinishError(null);
+                        setFinishSuccess(null);
+                        setIsFinishModalOpen(true);
+                    }}
+                    disabled={dashboardData.estado !== "EN PROCESO"}
+                >
+                    <CheckSquare className="w-6 h-6 mr-2" />
+                    Finalizar Verificación
+                </Button>
+            </div>
 
             {/* Modal para finalizar verificación */}
             {isFinishModalOpen && (
@@ -1538,7 +1575,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div className="flex gap-3 pt-2">
                                 <Button
                                     type="submit"
-                                    className="flex-1"
+                                    className="flex-1 h-14 text-base"
                                     disabled={isFinishing}
                                 >
                                     {isFinishing ? (
@@ -1553,7 +1590,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="flex-1"
+                                    className="flex-1 h-14 text-base"
                                     onClick={() => setIsFinishModalOpen(false)}
                                     disabled={isFinishing}
                                 >

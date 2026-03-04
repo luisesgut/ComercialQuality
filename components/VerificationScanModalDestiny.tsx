@@ -181,9 +181,10 @@ export function VerificationScanModalDestiny({ verificacionId, onClose, onSucces
                     {/* INPUT MANUAL REQUERIDO: Consecutivo */}
                     <div className="space-y-2">
                         <Label htmlFor="consecutivo">Consecutivo (MANUAL) *</Label>
-                        <Input 
+                        <Input
                             id="consecutivo"
                             type="number"
+                            inputMode="numeric"
                             value={consecutivoInput}
                             onChange={(e) => setConsecutivoInput(e.target.value)}
                             disabled={isSubmitting}

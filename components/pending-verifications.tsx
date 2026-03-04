@@ -167,8 +167,8 @@ function VerificationCard({ verification, compact = false }: { verification: Ver
   }
 
   // Usamos un nombre/lote que asumes viene del GET /activas
-  const cardTitle = verification.productName || `Verificación #${verification.id}`; 
-  const lotDetails = verification.lotNumber ? `Lote: ${verification.lotNumber}` : `Cliente: ${verification.inspector}`;
+  const cardTitle = verification.productName || `Verificación #${verification.id}`;
+  const lotDetails = verification.lotNumber ? `Lote: ${verification.lotNumber}` : `Cliente: ${verification.cliente}`;
 
 
   return (
@@ -198,7 +198,7 @@ function VerificationCard({ verification, compact = false }: { verification: Ver
                   </span>
                   <span className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    Inspector: {verification.inspector}
+                    Cliente: {verification.cliente}
                   </span>
                 </div>
               )}
@@ -208,7 +208,7 @@ function VerificationCard({ verification, compact = false }: { verification: Ver
           {!compact && (
             // ACCIÓN CLAVE: Redirige a la página de detalle de la verificación
             // que luego cargará el dashboard /api/Verificacion/dashboard/{id}
-            <Button onClick={() => router.push(`/dashboard/verificacion/${verification.id}`)} className="shrink-0">
+            <Button onClick={() => router.push(`/dashboard/verificacion/${verification.id}`)} className="shrink-0 h-12 px-5 text-sm font-semibold">
               <Eye className="w-4 h-4 mr-2" />
               Ver Detalles
             </Button>

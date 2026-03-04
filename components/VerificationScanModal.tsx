@@ -129,12 +129,12 @@ export function VerificationScanModal({ verificacionId, onClose, onSuccess }: Ve
               <div className="relative">
                 <Input
                   id="trazabilidad"
+                  inputMode="numeric"
                   placeholder="Escanee o ingrese el código de la etiqueta"
                   value={trazabilityCode}
                   onChange={(e) => setTrazabilityCode(e.target.value)}
                   className="pl-4 h-12 text-lg text-center font-mono"
-                  // Deshabilitar el input si ya tenemos datos listos para el POST
-                  disabled={isFetching || isSubmitting || !!consolidatedData} 
+                  disabled={isFetching || isSubmitting || !!consolidatedData}
                   required
                 />
               </div>

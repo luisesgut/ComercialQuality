@@ -1,7 +1,8 @@
 // src/hooks/useDestinyEtiqueta.ts (Nuevo hook)
 
 import { useState, useCallback } from 'react';
-import { DestinyEtiquetaData } from '@/app/types/verification-types'; 
+import { DestinyEtiquetaData } from '@/app/types/verification-types';
+import { classifyApiError } from "@/lib/api-error";
 
 const API_BASE_URL = "http://172.16.10.31/api";
 
@@ -25,19 +26,28 @@ export function useDestinyEtiqueta() {
 
     try {
         const url = `${API_BASE_URL}/EtiquetaIndividual/destiny/search-by-shipping?ItemNo=${inputs.ItemNo}&InventoryLot=${inputs.InventoryLot}&ShippingUnitID=${inputs.ShippingUnitID}`;
-        
-        const response = await fetch(url);
-        
+        const ctx = `ItemNo ${inputs.ItemNo} / Lot ${inputs.InventoryLot}`;
+
+        let response: Response;
+        try {
+            response = await fetch(url);
+        } catch (err) {
+            const classified = classifyApiError(err, undefined, ctx);
+            throw new Error(`${classified.message} ${classified.hint}`);
+        }
+
         if (!response.ok) {
-            throw new Error(`Error (${response.status}) al buscar datos Destiny.`);
+            const classified = classifyApiError(new Error(`HTTP ${response.status}`), response.status, ctx);
+            throw new Error(`${classified.message} ${classified.hint}`);
         }
-        
+
         const result: DestinyEtiquetaData = await response.json();
-        
+
         if (!result || !result.prodEtiquetasDestiny) {
-             throw new Error("Datos de producto Destiny incompletos o no encontrados.");
+            const classified = classifyApiError(new Error("Sin resultados"), 404, ctx);
+            throw new Error(`${classified.message} ${classified.hint}`);
         }
-        
+
         setData(result);
 
     } catch (err: any) {

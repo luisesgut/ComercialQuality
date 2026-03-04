@@ -8,6 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   ArrowLeft,
   Package,
   Calendar,
@@ -51,6 +56,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
   const [notes, setNotes] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [showExitDialog, setShowExitDialog] = useState(false)
 
   useEffect(() => {
     fetchVerifications()
@@ -88,6 +95,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
   const handleCheckpoint = (key: keyof typeof checkpoints, value: boolean) => {
     setCheckpoints((prev) => ({ ...prev, [key]: value }))
+    setHasChanges(true)
+  }
+
+  const handleCancelClick = () => {
+    if (hasChanges) {
+      setShowExitDialog(true)
+    } else {
+      router.push("/dashboard/pendientes")
+    }
   }
 
   const handleSave = async () => {
@@ -110,6 +126,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
       })
 
       if (success) {
+        setHasChanges(false)
         if (newStatus === "completed" || newStatus === "rejected") {
           router.push("/dashboard/pendientes")
         }
@@ -176,7 +193,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 </span>
                 <span className="flex items-center gap-1">
                   <User className="w-4 h-4" />
-                  {verification.inspector}
+                  Cliente: {verification.cliente}
                 </span>
               </div>
             </div>
@@ -231,22 +248,22 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                 <div className="flex gap-2">
                   <Button
-                    size="sm"
                     variant={value === true ? "default" : "outline"}
-                    className={value === true ? "bg-success hover:bg-success/90 text-success-foreground" : ""}
+                    className={`h-12 px-4 gap-1.5 text-sm font-semibold min-w-[4rem] ${
+                      value === true ? "bg-success hover:bg-success/90 text-success-foreground" : ""
+                    }`}
                     onClick={() => handleCheckpoint(key, true)}
                   >
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-4 h-4" /> OK
                   </Button>
                   <Button
-                    size="sm"
                     variant={value === false ? "default" : "outline"}
-                    className={
+                    className={`h-12 px-4 gap-1.5 text-sm font-semibold min-w-[4rem] ${
                       value === false ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" : ""
-                    }
+                    }`}
                     onClick={() => handleCheckpoint(key, false)}
                   >
-                    <XCircle className="w-4 h-4" />
+                    <XCircle className="w-4 h-4" /> NO
                   </Button>
                 </div>
               </div>
@@ -264,7 +281,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
           <Textarea
             placeholder="Agregue observaciones adicionales sobre la verificación..."
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(e) => { setNotes(e.target.value); setHasChanges(true) }}
             className="min-h-24"
           />
         </CardContent>
@@ -281,12 +298,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
       <div className="flex gap-4 pb-8">
         <Button
           variant="outline"
-          className="flex-1 bg-transparent"
-          onClick={() => router.push("/dashboard/pendientes")}
+          className="flex-1 h-14 bg-transparent text-base"
+          onClick={handleCancelClick}
         >
           Cancelar
         </Button>
-        <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
+        <Button className="flex-1 h-14 text-base" onClick={handleSave} disabled={isSaving}>
           {isSaving ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -300,6 +317,26 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
           )}
         </Button>
       </div>
+
+      <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Salir sin guardar?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Los cambios en los puntos de verificación y notas se perderán.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-12">Seguir editando</AlertDialogCancel>
+            <AlertDialogAction
+              className="h-12 bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={() => router.push("/dashboard/pendientes")}
+            >
+              Salir sin guardar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useVerifications } from "@/lib/verification-context"
-import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers } from "lucide-react"
+import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers, PlayCircle } from "lucide-react"
 
 export function DashboardMenu() {
   const router = useRouter()
@@ -32,7 +32,9 @@ export function DashboardMenu() {
     return () => window.clearInterval(intervalId)
   }, [])
 
-  const pendingCount = getPendingVerifications().length
+  const pendingList = getPendingVerifications()
+  const pendingCount = pendingList.length
+  const activeVerification = pendingList.find((v) => v.status === "in-progress") ?? null
 
   if (isLoading) {
     return (
@@ -74,6 +76,34 @@ export function DashboardMenu() {
           </div>
         )}
       </div>
+
+      {activeVerification && (
+        <div className="rounded-xl border-2 border-warning bg-warning/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-warning/20 flex items-center justify-center shrink-0">
+              <PlayCircle className="w-6 h-6 text-warning" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-warning mb-0.5">
+                Verificación en Curso
+              </p>
+              <p className="font-bold text-foreground leading-tight">
+                {activeVerification.productName}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Cliente: {activeVerification.cliente}
+              </p>
+            </div>
+          </div>
+          <Button
+            className="h-12 px-6 shrink-0 self-stretch sm:self-auto"
+            onClick={() => router.push(`/dashboard/verificacion/${activeVerification.id}`)}
+          >
+            Continuar
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

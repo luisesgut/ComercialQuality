@@ -24,6 +24,41 @@ import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCi
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
 
+function StepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 }) {
+  const steps = [
+    { number: 1, label: "Búsqueda" },
+    { number: 2, label: "Confirmación" },
+    { number: 3, label: "Detalles" },
+  ]
+  return (
+    <div className="flex items-center justify-center gap-0 mb-2">
+      {steps.map((step, index) => {
+        const isCompleted = currentStep > step.number
+        const isActive = currentStep === step.number
+        return (
+          <div key={step.number} className="flex items-center">
+            <div className="flex flex-col items-center gap-1">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-colors ${
+                isCompleted ? "bg-primary border-primary text-primary-foreground"
+                : isActive ? "bg-primary/10 border-primary text-primary"
+                : "bg-muted border-border text-muted-foreground"
+              }`}>
+                {isCompleted ? <CheckCircle className="w-4 h-4" /> : step.number}
+              </div>
+              <span className={`text-xs font-medium ${isActive ? "text-primary" : "text-muted-foreground"}`}>
+                {step.label}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <div className={`w-12 h-0.5 mx-1 mb-4 transition-colors ${isCompleted ? "bg-primary" : "bg-border"}`} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function NewVerificationForm() {
   const router = useRouter()
   const { user } = useAuth()
@@ -549,6 +584,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
+        <StepIndicator currentStep={3} />
         <h3 className="text-2xl font-bold text-primary">Detalles de Inicio ({mode.toUpperCase()})</h3>
         <p className="text-muted-foreground">Complete los campos manuales para iniciar formalmente la verificación de **{etiqueta.nombreProducto}**.</p>
 
@@ -626,6 +662,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
+        <StepIndicator currentStep={2} />
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={resetData} disabled={isFetching || isSubmitting}>
             <ArrowLeft className="h-5 w-5" />
@@ -692,6 +729,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
   if (mode === "destiny") {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
+        <StepIndicator currentStep={1} />
         <div className="flex items-center gap-4">
           <Button
             variant="ghost" size="icon" onClick={() => setMode("bioflex")}
@@ -812,7 +850,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                     <HelpCircle className="h-4 w-4" />
                   </Button>
                 </div>
-                <Input id="destiny-lot" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
+                <Input id="destiny-lot" inputMode="numeric" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -833,7 +871,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                     <HelpCircle className="h-4 w-4" />
                   </Button>
                 </div>
-                <Input id="destiny-shipping" value={destinyShippingUnitId} onChange={(e) => setDestinyShippingUnitId(e.target.value)} placeholder="Ej. 28596" disabled={isFetching} />
+                <Input id="destiny-shipping" inputMode="numeric" value={destinyShippingUnitId} onChange={(e) => setDestinyShippingUnitId(e.target.value)} placeholder="Ej. 28596" disabled={isFetching} />
               </div>
               <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
                 {isFetching ? "Buscando..." : "Buscar datos Destiny"}
@@ -850,6 +888,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
   if (mode === "quality") {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
+        <StepIndicator currentStep={1} />
         <div className="flex items-center gap-4">
           <Button
             variant="ghost" size="icon" onClick={() => setMode("bioflex")}
@@ -897,6 +936,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                 </div>
                 <Input
                   id="quality-po2"
+                  inputMode="numeric"
                   value={qualityPO2}
                   onChange={(e) => setQualityPO2(e.target.value)}
                   placeholder="Ej. 184335"
@@ -1033,6 +1073,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
   const currentMode = mode as "bioflex" | "destiny" | "quality";
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      <StepIndicator currentStep={1} />
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard")}>
           <ArrowLeft className="h-5 w-5" />
@@ -1130,6 +1171,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                 <div className="relative">
                   <Input
                     id="trazabilityCode"
+                    inputMode="numeric"
                     placeholder="Ej: 604025132030"
                     value={trazabilityCode}
                     onChange={(e) => setTrazabilityCode(e.target.value)}
