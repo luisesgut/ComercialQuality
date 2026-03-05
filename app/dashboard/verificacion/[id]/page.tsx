@@ -21,7 +21,10 @@ import {
     CommandList,
 } from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, ChevronsUpDown, Camera } from 'lucide-react';
+import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, ChevronsUpDown, Camera, QrCode, Printer, Trash2 } from 'lucide-react';
+import { TarimaLabelModal } from "@/components/TarimaLabelModal";
+import { TarimaQRModal } from "@/components/TarimaQRModal";
+import type { TarimaDetalle } from "@/hooks/useTarimaDetail";
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -110,12 +113,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isCreatingTarima, setIsCreatingTarima] = useState(false);
     const [createTarimaError, setCreateTarimaError] = useState<string | null>(null);
     const [createTarimaSuccess, setCreateTarimaSuccess] = useState<string | null>(null);
+    const [deleteTarimaConfirmId, setDeleteTarimaConfirmId] = useState<number | null>(null);
+    const [isDeletingTarima, setIsDeletingTarima] = useState(false);
+    const [deleteTarimaError, setDeleteTarimaError] = useState<string | null>(null);
     const [trazabilidadInput, setTrazabilidadInput] = useState("");
     const [consecutivoManualInput, setConsecutivoManualInput] = useState("");
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
     const [tieneDefectosInput, setTieneDefectosInput] = useState(false);
-    const [comentariosDefectoInput, setComentariosDefectoInput] = useState("");
+    const [comentariosDefectoInput, setComentariosDefectoInput] = useState<string[]>([]);
     const [isRegisteringScan, setIsRegisteringScan] = useState(false);
     const [registerError, setRegisterError] = useState<string | null>(null);
     const [registerSuccess, setRegisterSuccess] = useState<string | null>(null);
@@ -123,6 +129,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [lastDetalleId, setLastDetalleId] = useState<number | null>(null);
     const [isDefectoOpen, setIsDefectoOpen] = useState(false);
     const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
+    const [evidenceTargetId, setEvidenceTargetId] = useState<number | null>(null);
     const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([]);
     const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
     const [evidenceError, setEvidenceError] = useState<string | null>(null);
@@ -142,6 +149,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isPzasCajaHelpOpen, setIsPzasCajaHelpOpen] = useState(false);
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
+    const [tarimaLabelData, setTarimaLabelData] = useState<TarimaDetalle | null>(null);
+    const [isTarimaLabelOpen, setIsTarimaLabelOpen] = useState(false);
+    const [isTarimaQROpen, setIsTarimaQROpen] = useState(false);
+    const [reprintLoadingId, setReprintLoadingId] = useState<number | null>(null);
     
     // Función para obtener los detalles del dashboard (GET a /dashboard/{id})
     const fetchDashboardData = async () => {
@@ -399,15 +410,88 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 }
                 throw new Error(detail);
             }
+
+            // Leer el body antes de cualquier otra llamada async
+            const createData = await response.json().catch(() => null);
+
             setCreateTarimaSuccess("Tarima creada correctamente.");
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchDashboardData();
             setTimeout(() => router.refresh(), 300);
+
+            // Obtener detalle completo para mostrar etiqueta
+            const newTarimaId = createData?.tarimaId;
+            if (newTarimaId) {
+                try {
+                    const labelRes = await fetch(`${API_BASE_URL}/Verificacion/tarima/${newTarimaId}`);
+                    if (labelRes.ok) {
+                        const labelData = await labelRes.json();
+                        setTarimaLabelData(labelData);
+                        setIsTarimaLabelOpen(true);
+                    }
+                } catch {
+                    // Si falla el GET de la etiqueta no bloqueamos el flujo
+                }
+            }
         } catch (err: any) {
             setCreateTarimaError(err.message || "Error de conexión al crear tarima.");
         } finally {
             setIsCreatingTarima(false);
+        }
+    };
+
+    const handleDeleteTarima = async (tarimaId: number) => {
+        setIsDeletingTarima(true);
+        setDeleteTarimaError(null);
+        try {
+            const res = await fetch(`${API_BASE_URL}/Verificacion/eliminar-tarima/${tarimaId}`, {
+                method: "DELETE",
+            });
+            if (!res.ok) {
+                let detail = `Error (${res.status}) al eliminar tarima.`;
+                try {
+                    const text = await res.text();
+                    if (text) {
+                        try { const j = JSON.parse(text); detail = j.detail || j.message || j.error || detail; }
+                        catch { detail = text; }
+                    }
+                } catch { /* ignore */ }
+                throw new Error(detail);
+            }
+            // Actualizar UI directamente sin F5
+            setTarimasActivas((prev) => prev.filter((t) => t.tarimaId !== tarimaId));
+            if (selectedTarima?.tarimaId === tarimaId) setSelectedTarima(null);
+            setDeleteTarimaConfirmId(null);
+            fetchDashboardData();
+        } catch (err: any) {
+            setDeleteTarimaError(err.message || "Error de conexión al eliminar tarima.");
+        } finally {
+            setIsDeletingTarima(false);
+        }
+    };
+
+    const openEvidenceForCaja = (detalleId: number) => {
+        setEvidenceTargetId(detalleId);
+        setEvidenceError(null);
+        setEvidenceSuccess(null);
+        setSelectedEvidenceFiles([]);
+        setIsEvidenceModalOpen(true);
+    };
+
+    const handleReprintLabel = async (tarimaId: number) => {
+        setReprintLoadingId(tarimaId);
+        try {
+            const res = await fetch(`${API_BASE_URL}/Verificacion/tarima/${tarimaId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setTarimaLabelData(data);
+                setIsTarimaLabelOpen(true);
+            }
+        } catch {
+            // ignore
+        } finally {
+            setReprintLoadingId(null);
         }
     };
 
@@ -459,8 +543,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
-        if (tieneDefectosInput && !comentariosDefectoInput) {
-            setRegisterError("Agregue comentarios del defecto.");
+        if (tieneDefectosInput && comentariosDefectoInput.length === 0) {
+            setRegisterError("Seleccione al menos un tipo de defecto.");
             return;
         }
 
@@ -475,7 +559,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             tipoEtiqueta,
             piezasAuditadas: piezasAuditadasValue,
             ...(tieneDefectosInput
-                ? { tieneDefectos: true, comentariosDefecto: comentariosDefectoInput }
+                ? { tieneDefectos: true, comentariosDefecto: comentariosDefectoInput.join(" | ") }
                 : {}),
         };
 
@@ -523,7 +607,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setQtyUomEtiquetaInput("");
             setPiezasAuditadasInput("");
             setTieneDefectosInput(false);
-            setComentariosDefectoInput("");
+            setComentariosDefectoInput([]);
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchDashboardData();
@@ -554,7 +638,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
-        if (!lastDetalleId) {
+        const activeDetalleId = evidenceTargetId ?? lastDetalleId;
+        if (!activeDetalleId) {
             setEvidenceError("No se encontro el detalle para asociar la evidencia.");
             return;
         }
@@ -564,7 +649,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         try {
             const formData = new FormData();
             formData.append("VerificacionId", String(verifiedIdNumber));
-            formData.append("DetalleId", String(lastDetalleId));
+            formData.append("DetalleId", String(activeDetalleId));
             selectedEvidenceFiles.forEach((file) => formData.append("Fotos", file));
 
             const response = await fetch(`${API_BASE_URL}/Verificacion/subir-evidencia`, {
@@ -592,7 +677,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
             setEvidenceSuccess("Evidencia subida correctamente.");
             setSelectedEvidenceFiles([]);
-            setTimeout(() => setIsEvidenceModalOpen(false), 600);
+            setTimeout(() => { setIsEvidenceModalOpen(false); setEvidenceTargetId(null); }, 600);
         } catch (err: any) {
             setEvidenceError(err.message || "Error de conexión al subir la evidencia.");
         } finally {
@@ -720,25 +805,58 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         <div className="max-w-4xl mx-auto space-y-6 pb-8">
 
             {/* Header */}
-            <div className="flex items-start gap-3">
-                <Button variant="ghost" size="icon" className="h-12 w-12 shrink-0 mt-0.5" onClick={() => router.push("/dashboard/pendientes")}>
-                    <ArrowLeft className="h-6 w-6" />
+            <div className="flex items-start gap-2">
+                <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 mt-1" onClick={() => router.push("/dashboard/pendientes")}>
+                    <ArrowLeft className="h-5 w-5" />
                 </Button>
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wide ${
-                            dashboardData.estado === "EN PROCESO" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-                        }`}>
-                            {dashboardData.estado}
-                        </span>
-                        <span className="text-xs text-muted-foreground">#{dashboardData.verificacionId}</span>
-                    </div>
-                    <h1 className="text-xl font-bold text-foreground mt-1 leading-tight">{dashboardData.productoInfo}</h1>
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                        Lote: <span className="font-semibold text-foreground">{dashboardData.loteOrden}</span>
-                        {" · "}Cliente: <span className="font-semibold text-foreground">{dashboardData.cliente}</span>
-                    </p>
-                </div>
+                <Card className="flex-1 border-0 shadow-md bg-card">
+                    <CardContent className="p-4 space-y-3">
+                        {/* Fila superior: estado + ID */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <span className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wide ${
+                                    dashboardData.estado === "EN PROCESO"
+                                        ? "bg-primary/15 text-primary"
+                                        : "bg-muted text-muted-foreground"
+                                }`}>
+                                    {dashboardData.estado}
+                                </span>
+                                <span className="text-xs text-muted-foreground font-medium">
+                                    Verificación #{dashboardData.verificacionId}
+                                </span>
+                            </div>
+                            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                                dashboardData.cliente === "BIOFLEX" ? "bg-blue-100 text-blue-700" :
+                                dashboardData.cliente === "DESTINY" ? "bg-purple-100 text-purple-700" :
+                                "bg-green-100 text-green-700"
+                            }`}>
+                                {dashboardData.cliente}
+                            </span>
+                        </div>
+
+                        {/* Nombre del producto */}
+                        <div>
+                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mb-0.5">Producto</p>
+                            <h1 className="text-lg font-bold text-foreground leading-snug">{dashboardData.productoInfo}</h1>
+                        </div>
+
+                        {/* Datos de la orden */}
+                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border">
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Orden</p>
+                                <p className="text-sm font-bold mt-0.5">{dashboardData.loteOrden}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Meta piezas</p>
+                                <p className="text-sm font-bold mt-0.5">{dashboardData.piezasMeta.toLocaleString()}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Tarimas est.</p>
+                                <p className="text-sm font-bold mt-0.5">{dashboardData.tarimasTotalesEstimadas}</p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             {/* KPIs */}
@@ -811,6 +929,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 className="h-10 px-3 text-sm"
                             >
                                 {isTarimasLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refrescar"}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-10 px-3 text-sm"
+                                onClick={() => setIsTarimaQROpen(true)}
+                                title="Gestionar tarima por QR"
+                            >
+                                <QrCode className="w-4 h-4" />
                             </Button>
                             <Button
                                 className="h-10 px-4 text-sm font-semibold"
@@ -888,7 +1015,33 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             />
                                         </div>
                                     </div>
-                                    <p className="mt-3 text-xs text-muted-foreground">Por: {tarima.usuarioCreo}</p>
+                                    <div className="mt-3 flex items-center justify-between">
+                                        <p className="text-xs text-muted-foreground">Por: {tarima.usuarioCreo}</p>
+                                        <div className="flex items-center gap-1">
+                                            {tarima.cajasLlevamos === 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); setDeleteTarimaError(null); setDeleteTarimaConfirmId(tarima.tarimaId); }}
+                                                    className="flex items-center gap-1 text-xs text-destructive hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-destructive/10"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                    Eliminar
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); handleReprintLabel(tarima.tarimaId); }}
+                                                disabled={reprintLoadingId === tarima.tarimaId}
+                                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-primary/10"
+                                            >
+                                                {reprintLoadingId === tarima.tarimaId
+                                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                                    : <Printer className="w-3 h-3" />
+                                                }
+                                                Etiqueta
+                                            </button>
+                                        </div>
+                                    </div>
                                 </button>
                             );
                         })}
@@ -945,6 +1098,22 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     <p className="text-xs text-muted-foreground">
                                                         {tarima.cajasRegistradas} cajas · {tarima.usuario}
                                                     </p>
+                                                    {tarima.cajas.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                            {tarima.cajas.map((caja) => (
+                                                                <span
+                                                                    key={caja.detalleId}
+                                                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium leading-none ${
+                                                                        caja.tieneDefectos
+                                                                            ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                                                            : "bg-muted text-muted-foreground"
+                                                                    }`}
+                                                                >
+                                                                    {caja.identificador}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0 mr-2">
                                                     <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
@@ -955,6 +1124,18 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                             {defectCount} def
                                                         </span>
                                                     )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => { e.stopPropagation(); handleReprintLabel(tarima.tarimaId); }}
+                                                        disabled={reprintLoadingId === tarima.tarimaId}
+                                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
+                                                        title="Reimprimir etiqueta"
+                                                    >
+                                                        {reprintLoadingId === tarima.tarimaId
+                                                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                            : <Printer className="w-3.5 h-3.5" />
+                                                        }
+                                                    </button>
                                                 </div>
                                             </div>
                                         </AccordionTrigger>
@@ -969,11 +1150,21 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                             <p className="font-medium text-sm">{caja.identificador}</p>
                                                             <p className="text-xs text-muted-foreground">{caja.cantidad} pz · {caja.piezasAuditadas} auditadas</p>
                                                         </div>
-                                                        {caja.tieneDefectos && (
-                                                            <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full shrink-0">
-                                                                Defecto
-                                                            </span>
-                                                        )}
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            {caja.tieneDefectos && (
+                                                                <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full">
+                                                                    Defecto
+                                                                </span>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openEvidenceForCaja(caja.detalleId)}
+                                                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
+                                                                title="Agregar fotos de evidencia"
+                                                            >
+                                                                <Camera className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -1145,7 +1336,16 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </button>
                                 {tieneDefectosInput && (
                                     <div className="mt-3 space-y-2">
-                                        <Label htmlFor="comentariosDefecto" className="text-base font-medium">Tipo de Defecto</Label>
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="comentariosDefecto" className="text-base font-medium">
+                                                Tipos de Defecto
+                                            </Label>
+                                            {comentariosDefectoInput.length > 0 && (
+                                                <span className="text-xs text-muted-foreground">
+                                                    {comentariosDefectoInput.length} seleccionado{comentariosDefectoInput.length > 1 ? "s" : ""}
+                                                </span>
+                                            )}
+                                        </div>
                                         <Popover open={isDefectoOpen} onOpenChange={setIsDefectoOpen}>
                                             <PopoverTrigger asChild>
                                                 <Button
@@ -1156,8 +1356,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     className="h-14 w-full justify-between text-base border-2"
                                                     disabled={isRegisteringScan}
                                                 >
-                                                    <span className="truncate">
-                                                        {comentariosDefectoInput || "Seleccione el defecto encontrado"}
+                                                    <span className="truncate text-left">
+                                                        {comentariosDefectoInput.length === 0
+                                                            ? "Seleccione los defectos encontrados"
+                                                            : comentariosDefectoInput.join(", ")}
                                                     </span>
                                                     <ChevronsUpDown className="ml-2 h-5 w-5 shrink-0 opacity-50" />
                                                 </Button>
@@ -1168,26 +1370,62 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     <CommandList className="max-h-72">
                                                         <CommandEmpty>No se encontraron defectos.</CommandEmpty>
                                                         <CommandGroup>
-                                                            {DEFECTO_OPTIONS.map((defecto) => (
-                                                                <CommandItem
-                                                                    key={defecto}
-                                                                    value={defecto}
-                                                                    onSelect={(value) => {
-                                                                        setComentariosDefectoInput(value);
-                                                                        setIsDefectoOpen(false);
-                                                                    }}
-                                                                >
-                                                                    <Check
-                                                                        className={`mr-2 h-5 w-5 ${comentariosDefectoInput === defecto ? "opacity-100" : "opacity-0"}`}
-                                                                    />
-                                                                    {defecto}
-                                                                </CommandItem>
-                                                            ))}
+                                                            {DEFECTO_OPTIONS.map((defecto) => {
+                                                                const selected = comentariosDefectoInput.includes(defecto);
+                                                                return (
+                                                                    <CommandItem
+                                                                        key={defecto}
+                                                                        value={defecto}
+                                                                        onSelect={(value) => {
+                                                                            setComentariosDefectoInput((prev) =>
+                                                                                prev.includes(value)
+                                                                                    ? prev.filter((d) => d !== value)
+                                                                                    : [...prev, value]
+                                                                            );
+                                                                            // No cerramos el popover para permitir selección múltiple
+                                                                        }}
+                                                                    >
+                                                                        <Check className={`mr-2 h-5 w-5 ${selected ? "opacity-100" : "opacity-0"}`} />
+                                                                        {defecto}
+                                                                    </CommandItem>
+                                                                );
+                                                            })}
                                                         </CommandGroup>
                                                     </CommandList>
                                                 </Command>
+                                                {comentariosDefectoInput.length > 0 && (
+                                                    <div className="border-t p-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="w-full text-xs text-muted-foreground"
+                                                            onClick={() => setIsDefectoOpen(false)}
+                                                        >
+                                                            Listo ({comentariosDefectoInput.length} seleccionado{comentariosDefectoInput.length > 1 ? "s" : ""})
+                                                        </Button>
+                                                    </div>
+                                                )}
                                             </PopoverContent>
                                         </Popover>
+                                        {comentariosDefectoInput.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {comentariosDefectoInput.map((d) => (
+                                                    <span
+                                                        key={d}
+                                                        className="flex items-center gap-1 text-xs bg-destructive/10 text-destructive border border-destructive/20 px-2 py-1 rounded-full"
+                                                    >
+                                                        {d}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setComentariosDefectoInput((prev) => prev.filter((x) => x !== d))}
+                                                            className="hover:opacity-70 leading-none"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1335,7 +1573,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => setIsEvidenceModalOpen(false)}
+                                onClick={() => { setIsEvidenceModalOpen(false); setEvidenceTargetId(null); }}
                                 disabled={isEvidenceUploading}
                             >
                                 &times;
@@ -1343,7 +1581,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
 
                         <p className="text-muted-foreground text-sm">
-                            Suba fotos para el detalle #{lastDetalleId}.
+                            Suba fotos para el detalle #{evidenceTargetId ?? lastDetalleId}.
                         </p>
 
                         <form onSubmit={handleEvidenceSubmit} className="space-y-4">
@@ -1400,7 +1638,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     type="button"
                                     variant="outline"
                                     className="flex-1 h-14 text-base"
-                                    onClick={() => setIsEvidenceModalOpen(false)}
+                                    onClick={() => { setIsEvidenceModalOpen(false); setEvidenceTargetId(null); }}
                                     disabled={isEvidenceUploading}
                                 >
                                     Cancelar
@@ -1508,6 +1746,62 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             </div>
 
             {/* Modal para finalizar verificación */}
+            {deleteTarimaConfirmId !== null && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                                <Trash2 className="w-5 h-5 text-destructive" />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-bold">¿Eliminar tarima?</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    La tarima no tiene cajas registradas. Esta acción no se puede deshacer.
+                                </p>
+                            </div>
+                        </div>
+                        {deleteTarimaError && (
+                            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                                <AlertCircle className="w-4 h-4 shrink-0" />
+                                {deleteTarimaError}
+                            </div>
+                        )}
+                        <div className="flex gap-3 pt-1">
+                            <Button
+                                variant="destructive"
+                                className="flex-1 h-12"
+                                disabled={isDeletingTarima}
+                                onClick={() => handleDeleteTarima(deleteTarimaConfirmId)}
+                            >
+                                {isDeletingTarima
+                                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Eliminando...</>
+                                    : "Sí, eliminar"
+                                }
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="flex-1 h-12"
+                                disabled={isDeletingTarima}
+                                onClick={() => { setDeleteTarimaConfirmId(null); setDeleteTarimaError(null); }}
+                            >
+                                Cancelar
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isTarimaLabelOpen && tarimaLabelData && (
+                <TarimaLabelModal
+                    tarima={tarimaLabelData}
+                    onClose={() => { setIsTarimaLabelOpen(false); setTarimaLabelData(null); }}
+                />
+            )}
+
+            {isTarimaQROpen && (
+                <TarimaQRModal onClose={() => setIsTarimaQROpen(false)} />
+            )}
+
             {isFinishModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
