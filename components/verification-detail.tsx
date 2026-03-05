@@ -157,24 +157,26 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="relative flex items-center">
         <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/pendientes")}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div className="flex-1">
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <h2 className="text-2xl font-bold text-foreground">Verificación de Lote</h2>
           <p className="text-muted-foreground">{verification.lotNumber}</p>
         </div>
-        <Badge variant={verification.status === "completed" ? "secondary" : "outline"} className="gap-1">
-          {verification.status === "pending" && <Clock className="w-3 h-3" />}
-          {verification.status === "in-progress" && <Clock className="w-3 h-3" />}
-          {verification.status === "completed" && <CheckCircle2 className="w-3 h-3" />}
-          {verification.status === "rejected" && <XCircle className="w-3 h-3" />}
-          {verification.status === "pending" && "Pendiente"}
-          {verification.status === "in-progress" && "En Progreso"}
-          {verification.status === "completed" && "Completada"}
-          {verification.status === "rejected" && "Rechazada"}
-        </Badge>
+        <div className="ml-auto">
+          <Badge variant={verification.status === "completed" ? "secondary" : "outline"} className="gap-1">
+            {verification.status === "pending" && <Clock className="w-3 h-3" />}
+            {verification.status === "in-progress" && <Clock className="w-3 h-3" />}
+            {verification.status === "completed" && <CheckCircle2 className="w-3 h-3" />}
+            {verification.status === "rejected" && <XCircle className="w-3 h-3" />}
+            {verification.status === "pending" && "Pendiente"}
+            {verification.status === "in-progress" && "En Progreso"}
+            {verification.status === "completed" && "Completada"}
+            {verification.status === "rejected" && "Rechazada"}
+          </Badge>
+        </div>
       </div>
 
       {/* Info del producto */}

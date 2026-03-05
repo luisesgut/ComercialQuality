@@ -11,7 +11,7 @@ interface HookResult {
   error: string | null;
   // Métodos de entrada
   fetchByBioflex: (trazabilidad: string) => Promise<void>;
-  fetchByDestiny: (itemNo: string, lot: string, shippingId: string) => Promise<void>;
+  fetchByDestiny: (itemNo: string, lot: string) => Promise<void>;
   fetchByQuality: (po2: string, itemNo: string) => Promise<void>;
   resetData: () => void;
 }
@@ -28,7 +28,7 @@ export function useVerificationData(): HookResult {
   };
 
   // --- LÓGICA COMPARTIDA: Pasos 2 y 3 (Orden y Valores Técnicos) ---
-  const fetchComplementaryData = async (etiquetaData: any, origen: 'BIOFLEX' | 'DESTINY' | 'QUALITY') => {
+  const fetchComplementaryData = async (etiquetaData: any, origen: 'BIOFLEX' | 'DESTINY' | 'QUALITY', tipoEmpaque?: string) => {
     try {
         let ordenSearch = "";
         let claveProductoSearch = "";
@@ -49,7 +49,8 @@ export function useVerificationData(): HookResult {
              setConsolidatedData({
                 etiqueta: etiquetaData,
                 orden: null as any,
-                valoresTecnicos: null as any
+                valoresTecnicos: null as any,
+                ...(tipoEmpaque ? { tipoEmpaque } : {}),
              });
              return;
         }
@@ -100,9 +101,10 @@ export function useVerificationData(): HookResult {
         // CONSOLIDAR DATOS FINALES
         // ------------------------------------------------------------------
         setConsolidatedData({
-            etiqueta: etiquetaData, 
+            etiqueta: etiquetaData,
             orden: ordenData,
             valoresTecnicos: valoresTecnicosData,
+            ...(tipoEmpaque ? { tipoEmpaque } : {}),
         } as ConsolidateProductData);
 
     } catch (err: any) {
@@ -143,13 +145,13 @@ export function useVerificationData(): HookResult {
 
 
   // --- ENTRADA 2: DESTINY ---
-  const fetchByDestiny = useCallback(async (itemNo: string, lot: string, shippingId: string) => {
+  const fetchByDestiny = useCallback(async (itemNo: string, lot: string) => {
     setIsFetching(true);
     setError(null);
     setConsolidatedData(null);
 
     try {
-        const urlDestiny = `${API_BASE_URL}/EtiquetaIndividual/destiny/search-by-shipping?ItemNo=${itemNo}&InventoryLot=${lot}&ShippingUnitID=${shippingId}`;
+        const urlDestiny = `${API_BASE_URL}/EtiquetaIndividual/destiny/search-by-lot?itemNo=${itemNo}&inventoryLot=${lot}`;
         let response: Response;
         try {
             response = await fetch(urlDestiny);
@@ -165,7 +167,22 @@ export function useVerificationData(): HookResult {
             throw classifyApiError(new Error("Respuesta incompleta"), 404, `ItemNo ${itemNo}`);
         }
 
-        await fetchComplementaryData(data, 'DESTINY');
+        // Obtener tipoEmpaque de DestinyDatos
+        let tipoEmpaque: string | undefined;
+        try {
+            const urlDatos = `${API_BASE_URL}/DestinyDatos?codigoProducto=${encodeURIComponent(data.claveProducto)}`;
+            const resDatos = await fetch(urlDatos);
+            if (resDatos.ok) {
+                const datosJson = await resDatos.json();
+                // Puede ser array o objeto único
+                const item = Array.isArray(datosJson) ? datosJson[0] : datosJson;
+                if (item?.tipoEmpaque) tipoEmpaque = item.tipoEmpaque;
+            }
+        } catch {
+            // Si falla, continuamos sin tipoEmpaque (no es bloqueante)
+        }
+
+        await fetchComplementaryData(data, 'DESTINY', tipoEmpaque);
 
     } catch (err: any) {
         console.error("Error Destiny:", err);

@@ -93,6 +93,7 @@ export function NewVerificationForm() {
   // --- ESTADOS DE LA FASE 2 (Inputs Manuales y POST) ---
   const [clienteInput, setClienteInput] = useState<string>('');
   const [tipoBolsaInput, setTipoBolsaInput] = useState<string>('');
+  const [piezasPorCajaInput, setPiezasPorCajaInput] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null)
@@ -106,7 +107,6 @@ export function NewVerificationForm() {
   // --- ESTADOS ESPECÍFICOS DE DESTINY (Inputs) ---
   const [destinyItemNo, setDestinyItemNo] = useState("")
   const [destinyInventoryLot, setDestinyInventoryLot] = useState("")
-  const [destinyShippingUnitId, setDestinyShippingUnitId] = useState("")
 
   // --- ESTADOS ESPECÍFICOS DE QUALITY (Mock) ---
   const [qualityPO2, setQualityPO2] = useState("")
@@ -118,6 +118,29 @@ export function NewVerificationForm() {
     const clientePorModo = mode.toUpperCase();
     setClienteInput(clientePorModo);
   }, [mode, verificationStarted]);
+
+  // Auto-rellenar tipoBolsa con tipoEmpaque de DestinyDatos
+  useEffect(() => {
+    if (consolidatedData?.tipoEmpaque && !tipoBolsaInput) {
+      setTipoBolsaInput(consolidatedData.tipoEmpaque);
+    }
+  }, [consolidatedData?.tipoEmpaque]);
+
+  // Auto-rellenar piezasPorCaja según modo
+  useEffect(() => {
+    if (!consolidatedData) return;
+    const { etiqueta, valoresTecnicos } = consolidatedData;
+    let valor = "";
+    if (mode === "bioflex") {
+      valor = String((valoresTecnicos?.piezasPorCaja || 0) * 10);
+    } else if (mode === "destiny") {
+      const destLabel = etiqueta as unknown as DestinyEtiquetaData;
+      valor = String(destLabel.prodEtiquetasDestiny?.qtyUOM || "");
+    } else if (mode === "quality") {
+      valor = String(valoresTecnicos?.piezasPorCaja || "");
+    }
+    setPiezasPorCajaInput(valor);
+  }, [consolidatedData, mode]);
 
   const extractVerificationIdFromError = (message: string) => {
     const match = message.match(/ID:\s*(\d+)/i);
@@ -201,13 +224,13 @@ export function NewVerificationForm() {
     setSubmitError(null)
     setVerificationStarted(false);
 
-    if (!destinyItemNo || !destinyInventoryLot || !destinyShippingUnitId) {
-      setSubmitError("Complete ItemNo, InventoryLot y ShippingUnitId para Destiny.")
+    if (!destinyItemNo || !destinyInventoryLot) {
+      setSubmitError("Complete ItemNo e InventoryLot para Destiny.")
       return
     }
 
     // Usamos el hook unificado
-    await fetchByDestiny(destinyItemNo, destinyInventoryLot, destinyShippingUnitId);
+    await fetchByDestiny(destinyItemNo, destinyInventoryLot);
   }
 
   // Quality
@@ -386,47 +409,31 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
     let postDataSpecific: any = {};
 
     // Lógica de Negocio Diferenciada
-    if (mode === "bioflex") {
-      // Lógica de Bioflex: x10
-      const piezasPorCajaBioflex = (valoresTecnicos?.piezasPorCaja || 0) * 10;
+    const piezasPorCajaFinal = Number(piezasPorCajaInput) || 0;
 
+    if (mode === "bioflex") {
       postDataSpecific = {
         cantidadOrden: orden?.cantidad,
-        unidadOrden: orden?.unidad, // "Millares"
-        piezasPorCaja: piezasPorCajaBioflex,
+        unidadOrden: orden?.unidad,
+        piezasPorCaja: piezasPorCajaFinal,
         cajasPorTarima: valoresTecnicos?.cajasXtarima,
         wicketsPorCaja: valoresTecnicos?.wicketPorCaja,
         perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
       };
-
     } else if (mode === "destiny") {
-      // Para Destiny:
-      // - productoId: etiqueta.id (4389)
-      // - lote: etiqueta.orden (28596)
-      // - printCard: etiqueta.printCard ("E-4814-A_R-1")
-      // - cantidadOrden: orden.cantidad (500)
-      // - unidadOrden: orden.unidad ("Millares")
-      // - piezasPorCaja: etiqueta.prodEtiquetasDestiny.qtyUOM (1000)
-      // - cajasPorTarima: valoresTecnicos.cajasXtarima (30)
-      // - wicketsPorCaja: valoresTecnicos.wicketPorCaja (6)
-      // - perforaciones: valoresTecnicos.cantPerforaciones (4)
-
-      const destLabel = etiqueta as unknown as DestinyEtiquetaData;
-      const piezasPorCajaDestiny = Number(destLabel.prodEtiquetasDestiny?.qtyUOM || 0);
-
       postDataSpecific = {
-        cantidadOrden: orden?.cantidad, // 500
-        unidadOrden: orden?.unidad, // "Millares"
-        piezasPorCaja: piezasPorCajaDestiny, // 1000
-        cajasPorTarima: valoresTecnicos?.cajasXtarima || 0, // 30
-        wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0, // 6
-        perforaciones: String(valoresTecnicos?.cantPerforaciones || ""), // "4"
+        cantidadOrden: orden?.cantidad,
+        unidadOrden: orden?.unidad,
+        piezasPorCaja: piezasPorCajaFinal,
+        cajasPorTarima: valoresTecnicos?.cajasXtarima || 0,
+        wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0,
+        perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
       };
     } else if (mode === "quality") {
       postDataSpecific = {
         cantidadOrden: orden?.cantidad,
         unidadOrden: orden?.unidad,
-        piezasPorCaja: valoresTecnicos?.piezasPorCaja || 0,
+        piezasPorCaja: piezasPorCajaFinal,
         cajasPorTarima: valoresTecnicos?.cajasXtarima || 0,
         wicketsPorCaja: valoresTecnicos?.wicketPorCaja || 0,
         perforaciones: String(valoresTecnicos?.cantPerforaciones || ""),
@@ -434,7 +441,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
     }
 
     // 2. Validar Inputs Manuales (compartidos)
-    if (!clienteInput || !tipoBolsaInput) {
+    if (!clienteInput || !tipoBolsaInput || !piezasPorCajaInput) {
       setSubmitError("Por favor, complete todos los campos manuales requeridos.");
       return;
     }
@@ -596,25 +603,43 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
         )}
 
         <form onSubmit={handleStartVerificationSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="cliente">Cliente *</Label>
-            <Input id="cliente" placeholder="Ingrese o seleccione el Cliente" value={clienteInput}
-              onChange={(e) => setClienteInput(e.target.value)} disabled={isSubmitting} />
-          </div>
+          {mode !== "destiny" && (
+            <div className="space-y-2">
+              <Label htmlFor="cliente">Cliente *</Label>
+              <Input id="cliente" placeholder="Ingrese o seleccione el Cliente" value={clienteInput}
+                onChange={(e) => setClienteInput(e.target.value)} disabled={isSubmitting} />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
-            <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
-              <SelectTrigger className="w-full h-12">
-                <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Sello lateral">Sello lateral</SelectItem>
-                <SelectItem value="Sello lateral con zipper">Sello lateral con zipper</SelectItem>
-                <SelectItem value="Wicket">Wicket</SelectItem>
-                <SelectItem value="Wicket con zipper">Wicket con zipper</SelectItem>
-                <SelectItem value="Pouch">Pouch</SelectItem>
-              </SelectContent>
-            </Select>
+            {mode === "destiny" && consolidatedData?.tipoEmpaque ? (
+              <Input id="tipoBolsa" value={tipoBolsaInput} readOnly disabled={isSubmitting} className="bg-muted cursor-default" />
+            ) : (
+              <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
+                <SelectTrigger className="w-full h-12">
+                  <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Sello lateral">Sello lateral</SelectItem>
+                  <SelectItem value="Sello lateral con zipper">Sello lateral con zipper</SelectItem>
+                  <SelectItem value="Wicket">Wicket</SelectItem>
+                  <SelectItem value="Wicket con zipper">Wicket con zipper</SelectItem>
+                  <SelectItem value="Pouch">Pouch</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="piezasPorCaja">Piezas por Caja *</Label>
+            <Input
+              id="piezasPorCaja"
+              inputMode="numeric"
+              placeholder="Ej. 5000"
+              value={piezasPorCajaInput}
+              onChange={(e) => setPiezasPorCajaInput(e.target.value)}
+              disabled={isSubmitting}
+            />
           </div>
 
           <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
@@ -752,7 +777,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
         <Card className="border-0 shadow-lg bg-card">
           <CardHeader>
             <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
-            <CardDescription>ItemNo, InventoryLot y ShippingUnitId</CardDescription>
+            <CardDescription>ItemNo e InventoryLot</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleDestinySubmit} className="space-y-4">
@@ -852,27 +877,6 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                 </div>
                 <Input id="destiny-lot" inputMode="numeric" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="destiny-shipping">ShippingUnitId</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5"
-                    onClick={() =>
-                      setHelpImage({
-                        title: "Guia ShippingUnitId",
-                        src: "/guia-Shippingunit.jpg",
-                        alt: "Guia para encontrar ShippingUnitId",
-                      })
-                    }
-                  >
-                    <HelpCircle className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Input id="destiny-shipping" inputMode="numeric" value={destinyShippingUnitId} onChange={(e) => setDestinyShippingUnitId(e.target.value)} placeholder="Ej. 28596" disabled={isFetching} />
-              </div>
               <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
                 {isFetching ? "Buscando..." : "Buscar datos Destiny"}
               </Button>
@@ -899,6 +903,10 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
             <h2 className="text-2xl font-bold text-foreground">Quality</h2>
             <p className="text-muted-foreground">Ingrese los datos requeridos para iniciar una verificación Quality.</p>
           </div>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded-lg">
+          <AlertCircle className="w-4 h-4" />
+          En Quality hay intermitencia de datos; se recomienda realizar la captura manual.
         </div>
 
         {(submitError || fetchError) && (

@@ -29,6 +29,7 @@ export interface ConsolidateProductData {
   etiqueta: EtiquetaData;
   orden: OrdenData;
   valoresTecnicos: ValoresTecnicosData;
+  tipoEmpaque?: string; // Solo Destiny: obtenido de DestinyDatos
 }
 
 export interface ActiveVerificationData {
@@ -44,7 +45,9 @@ export interface ActiveVerificationData {
 
 export interface DashboardData {
     verificacionId: number;
-    productoInfo: string;
+    productoInfo: string | null;
+    nombreProducto?: string | null;
+    claveProducto?: string | null;
     loteOrden: string;
     piezasMeta: number;
     piezasActuales: number;
@@ -55,25 +58,37 @@ export interface DashboardData {
     estado: string;
     tiempoTranscurridoMinutos: number;
     cliente : "BIOFLEX" | "DESTINY" | "QUALITY";
+    printCard?: string | null;
 }
 
 export interface DestinyEtiquetaData {
   id: number; // -> Se usará para POST: productoId
+  idLote: number;
   area: string;
   claveProducto: string;
   nombreProducto: string;
+  maquina: string;
+  turno: string;
+  claveOperador: string;
+  operador: string;
   orden: number; // -> Se usará para POST: lote
   printCard: string | null; // -> Se usará para POST
-  claveUnidad: string; // -> Corresponde a 'unidadOrden' (BAGS)
+  claveUnidad: string; // -> Corresponde a 'unidadOrden' (CASES)
   piezas: number; // -> Cantidad de la orden
-  otSispro: string;
+  otSispro: string | null;
+  bobinaMaster: string;
   // Objeto anidado
   prodEtiquetasDestiny: {
+    id: number;
+    prodEtiquetaIndividualId: number;
     itemNo: string;
+    lote: string;
+    name: string;
     inventoryLot: string;
+    customerPO: string;
+    uom: string; // -> Corresponde a 'unidad' (CASES)
     shippingUnitID: string;
-    uom: string; // -> Corresponde a 'qtyUomEtiqueta' (BAGS)
-    qtyUOM: string; // -> Piezas por caja (string: "1000")
+    qtyUOM: string; // -> Piezas por caja (string: "5000")
   };
 }
 

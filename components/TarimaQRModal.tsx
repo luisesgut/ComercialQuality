@@ -31,6 +31,7 @@ import {
 
 interface TarimaQRModalProps {
   onClose: () => void
+  onUpdated?: () => void
 }
 
 function formatFecha(iso: string) {
@@ -43,7 +44,7 @@ function formatFecha(iso: string) {
   })
 }
 
-export function TarimaQRModal({ onClose }: TarimaQRModalProps) {
+export function TarimaQRModal({ onClose, onUpdated }: TarimaQRModalProps) {
   const [tarimaIdInput, setTarimaIdInput] = useState("")
   const [confirmReabrirOpen, setConfirmReabrirOpen] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
@@ -63,14 +64,20 @@ export function TarimaQRModal({ onClose }: TarimaQRModalProps) {
   const handleReabrir = async () => {
     if (!tarima) return
     const ok = await reabrirTarima(tarima.tarimaId)
-    if (ok) setActionSuccess("Tarima reabierta correctamente.")
+    if (ok) {
+      setActionSuccess("Tarima reabierta correctamente.")
+      onUpdated?.()
+    }
   }
 
   const handleEliminarCaja = async (detalleId: number) => {
     if (!tarima) return
     setConfirmDeleteId(null)
     const ok = await eliminarCaja(detalleId, tarima.tarimaId)
-    if (ok) setActionSuccess("Caja eliminada y contadores actualizados.")
+    if (ok) {
+      setActionSuccess("Caja eliminada y contadores actualizados.")
+      onUpdated?.()
+    }
   }
 
   const progress =
@@ -201,7 +208,7 @@ export function TarimaQRModal({ onClose }: TarimaQRModalProps) {
                   </div>
                 </div>
 
-                {/* Acción: reabrir (solo si está cerrada y se puede editar) */}
+                {/* Acción: reabrir (si está cerrada) */}
                 {tarima.estado === "CERRADA" && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
                     <p className="text-sm text-amber-800 font-medium">
@@ -211,18 +218,13 @@ export function TarimaQRModal({ onClose }: TarimaQRModalProps) {
                       className="w-full h-12"
                       variant="outline"
                       onClick={() => setConfirmReabrirOpen(true)}
-                      disabled={isSubmitting || !tarima.puedeEditar}
+                      disabled={isSubmitting}
                     >
                       {isSubmitting
                         ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Reabriendo...</>
                         : <><Unlock className="w-4 h-4 mr-2" />Reabrir Tarima</>
                       }
                     </Button>
-                    {!tarima.puedeEditar && (
-                      <p className="text-xs text-muted-foreground text-center">
-                        No se puede reabrir: la orden ya está finalizada.
-                      </p>
-                    )}
                   </div>
                 )}
 

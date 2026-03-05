@@ -21,7 +21,8 @@ import {
     CommandList,
 } from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, ChevronsUpDown, Camera, QrCode, Printer, Trash2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, ChevronsUpDown, Camera, QrCode, Printer, Trash2, ExternalLink } from 'lucide-react';
 import { TarimaLabelModal } from "@/components/TarimaLabelModal";
 import { TarimaQRModal } from "@/components/TarimaQRModal";
 import type { TarimaDetalle } from "@/hooks/useTarimaDetail";
@@ -172,6 +173,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setDashboardData(null); // Limpiar datos si hay error
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleOpenPrintCard = () => {
+        if (!dashboardData?.printCard) return;
+        const printCardUrl = `${API_BASE_URL}/Printcard/${encodeURIComponent(dashboardData.printCard)}`;
+        const win = window.open(printCardUrl, "_blank", "noopener,noreferrer");
+        if (!win) {
+            alert("No se pudo abrir el PrintCard. Verifique que el navegador permita ventanas emergentes.");
         }
     };
 
@@ -333,7 +343,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         if (dashboardData.cliente === "DESTINY") return "DESTINY";
         if (dashboardData.cliente === "QUALITY") return "QUALITY";
         if (dashboardData.cliente === "BIOFLEX") return "BIOFLEX";
-        const productInfoUpper = dashboardData.productoInfo.toUpperCase();
+        const productInfoUpper = (dashboardData.productoInfo ?? dashboardData.nombreProducto ?? "").toUpperCase();
         if (productInfoUpper.includes("DESTINY") || productInfoUpper.includes("61953")) {
             return "DESTINY";
         }
@@ -805,11 +815,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         <div className="max-w-4xl mx-auto space-y-6 pb-8">
 
             {/* Header */}
-            <div className="flex items-start gap-2">
-                <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 mt-1" onClick={() => router.push("/dashboard/pendientes")}>
+            <div className="space-y-2">
+                <Button variant="ghost" size="icon" className="h-10 w-10" onClick={() => router.push("/dashboard/pendientes")}>
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
-                <Card className="flex-1 border-0 shadow-md bg-card">
+                <Card className="border-0 shadow-md bg-card">
                     <CardContent className="p-4 space-y-3">
                         {/* Fila superior: estado + ID */}
                         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -836,8 +846,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                         {/* Nombre del producto */}
                         <div>
-                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mb-0.5">Producto</p>
-                            <h1 className="text-lg font-bold text-foreground leading-snug">{dashboardData.productoInfo}</h1>
+                            <div className="flex items-center gap-2 mb-0.5">
+                                <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Producto</p>
+                                {(dashboardData.claveProducto ?? dashboardData.productoInfo?.split(" — ")[0]) && (
+                                    <span className="text-[10px] font-bold bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full">
+                                        {dashboardData.claveProducto ?? dashboardData.productoInfo?.split(" — ")[0]}
+                                    </span>
+                                )}
+                            </div>
+                            <h1 className="text-lg font-bold text-foreground leading-snug">
+                                {dashboardData.nombreProducto ?? dashboardData.productoInfo ?? "—"}
+                            </h1>
                         </div>
 
                         {/* Datos de la orden */}
@@ -855,6 +874,18 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <p className="text-sm font-bold mt-0.5">{dashboardData.tarimasTotalesEstimadas}</p>
                             </div>
                         </div>
+
+                        {dashboardData.printCard && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full mt-1 gap-2"
+                                onClick={handleOpenPrintCard}
+                            >
+                                <ExternalLink className="w-4 h-4" />
+                                Ver PrintCard · {dashboardData.printCard}
+                            </Button>
+                        )}
                     </CardContent>
                 </Card>
             </div>
@@ -1673,16 +1704,23 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         <form onSubmit={handleCloseTarimaSubmit} className="space-y-4">
                             <div className="space-y-2">
                                 <Label htmlFor="motivoTarima" className="text-card-foreground">
-                                    Motivo
+                                    Resultado
                                 </Label>
-                                <Textarea
-                                    id="motivoTarima"
+                                <Select
                                     value={closeTarimaMotivo}
-                                    onChange={(e) => setCloseTarimaMotivo(e.target.value)}
-                                    placeholder="Ej. Tarima completa, cambio de orden, etc."
+                                    onValueChange={setCloseTarimaMotivo}
                                     disabled={isClosingTarima}
                                     required
-                                />
+                                >
+                                    <SelectTrigger className="w-full h-12">
+                                        <SelectValue placeholder="Seleccione el resultado de la tarima" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Tarima sin hallazgos">Tarima sin hallazgos</SelectItem>
+                                        <SelectItem value="Tarima con hallazgos">Tarima con hallazgos</SelectItem>
+                                        <SelectItem value="Tarima rechazada">Tarima rechazada</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
 
                             {closeTarimaError && (
@@ -1799,7 +1837,14 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             )}
 
             {isTarimaQROpen && (
-                <TarimaQRModal onClose={() => setIsTarimaQROpen(false)} />
+                <TarimaQRModal
+                    onClose={() => setIsTarimaQROpen(false)}
+                    onUpdated={() => {
+                        fetchTarimasActivas();
+                        fetchTarimasTerminadas();
+                        fetchDashboardData();
+                    }}
+                />
             )}
 
             {isFinishModalOpen && (
