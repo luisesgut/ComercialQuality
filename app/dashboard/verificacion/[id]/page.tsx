@@ -1,8 +1,9 @@
 // src/components/verification-detail.tsx
 "use client"
 
-import React, { useState, useEffect, use, useRef } from 'react';
+import React, { useState, useEffect, use, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import * as signalR from "@microsoft/signalr";
 
 // Asegúrate de importar tus interfaces y componentes de UI
 import { DashboardData } from '@/app/types/verification-types'; 
@@ -111,6 +112,44 @@ interface DefectoResumenItem {
     piezasAfectadas: number;
 }
 
+interface CajaEscaneadaEvent {
+    TarimaId: number;
+    NumeroTarima: number;
+    CajasEscaneadas: number;
+    CajasMeta: number;
+    TarimaCompleta: boolean;
+}
+
+interface TarimaCreadaEvent {
+    TarimaId: number;
+    NumeroTarima: number;
+    CajasMeta: number;
+    Usuario: string;
+}
+
+interface TarimaCerradaEvent {
+    TarimaId: number;
+    NumeroTarima: number;
+    EstatusCierre: "Aprobada" | "Rechazada" | "Con Defectos";
+    ComentarioCierre: string | null;
+}
+
+interface CajaEliminadaEvent {
+    DetalleId: number;
+    TarimaId: number;
+    CajasEscaneadas: number;
+}
+
+interface TarimaReabiertaEvent {
+    TarimaId: number;
+    NumeroTarima: number;
+}
+
+interface TarimaEliminadaEvent {
+    TarimaId: number;
+    NumeroTarima?: number;
+}
+
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
     const qtyUomVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -184,11 +223,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isPzasCajaHelpOpen, setIsPzasCajaHelpOpen] = useState(false);
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
+    const selectedTarimaIdRef = useRef<number | null>(null);
     
     // Función para obtener los detalles del dashboard (GET a /dashboard/{id})
-    const fetchDashboardData = async () => {
-        setIsLoading(true);
-        setError(null);
+    const fetchDashboardData = useCallback(async (options?: { silent?: boolean }) => {
+        const silent = options?.silent ?? false;
+        if (!silent) {
+            setIsLoading(true);
+            setError(null);
+        }
         try {
             const response = await fetch(`${API_BASE_URL}/Verificacion/dashboard/${verificationId}`);
             
@@ -199,12 +242,16 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             const data: DashboardData = await response.json();
             setDashboardData(data);
         } catch (err: any) {
-            setError(err.message || "Error de conexión al cargar el dashboard.");
-            setDashboardData(null); // Limpiar datos si hay error
+            if (!silent) {
+                setError(err.message || "Error de conexión al cargar el dashboard.");
+                setDashboardData(null); // Limpiar datos si hay error
+            }
         } finally {
-            setIsLoading(false);
+            if (!silent) {
+                setIsLoading(false);
+            }
         }
-    };
+    }, [verificationId]);
 
     const handleOpenPrintCard = () => {
         if (!dashboardData?.printCard) return;
@@ -215,7 +262,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
     };
 
-    const fetchTarimasActivas = async () => {
+    const fetchTarimasActivas = useCallback(async () => {
         setIsTarimasLoading(true);
         setTarimasError(null);
         try {
@@ -231,9 +278,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         } finally {
             setIsTarimasLoading(false);
         }
-    };
+    }, [verificationId]);
 
-    const fetchTarimasTerminadas = async () => {
+    const fetchTarimasTerminadas = useCallback(async () => {
         setIsTarimasTerminadasLoading(true);
         setTarimasTerminadasError(null);
         try {
@@ -249,9 +296,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         } finally {
             setIsTarimasTerminadasLoading(false);
         }
-    };
+    }, [verificationId]);
 
-    const fetchTarimaActivaDetalle = async (tarimaId: number) => {
+    const fetchTarimaActivaDetalle = useCallback(async (tarimaId: number) => {
         setIsTarimaActivaDetalleLoading(true);
         setTarimaActivaDetalleError(null);
         try {
@@ -267,10 +314,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         } finally {
             setIsTarimaActivaDetalleLoading(false);
         }
-    };
+    }, []);
 
-    const fetchCatalogoDefectos = async () => {
-        if (catalogoDefectos.length > 0) return;
+    const fetchCatalogoDefectos = useCallback(async () => {
         setIsCatalogoDefectosLoading(true);
         setCatalogoDefectosError(null);
         try {
@@ -286,9 +332,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         } finally {
             setIsCatalogoDefectosLoading(false);
         }
-    };
+    }, []);
 
-    const fetchDefectosResumen = async () => {
+    const fetchDefectosResumen = useCallback(async () => {
         setIsDefectosResumenLoading(true);
         setDefectosResumenError(null);
         try {
@@ -304,7 +350,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         } finally {
             setIsDefectosResumenLoading(false);
         }
-    };
+    }, [verificationId]);
 
     // Ejecutar el fetch al montar el componente y cuando el ID cambie
     useEffect(() => {
@@ -324,7 +370,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
         fetchTarimaActivaDetalle(selectedTarima.tarimaId);
-    }, [selectedTarima?.tarimaId]);
+    }, [selectedTarima?.tarimaId, fetchTarimaActivaDetalle]);
 
     useEffect(() => {
         try {
@@ -349,9 +395,79 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     }, [selectedTarima]);
 
     useEffect(() => {
+        if (!createTarimaSuccess) return;
+        const timeoutId = window.setTimeout(() => setCreateTarimaSuccess(null), 4000);
+        return () => window.clearTimeout(timeoutId);
+    }, [createTarimaSuccess]);
+
+    useEffect(() => {
+        if (!deleteCajaSuccess) return;
+        const timeoutId = window.setTimeout(() => setDeleteCajaSuccess(null), 4000);
+        return () => window.clearTimeout(timeoutId);
+    }, [deleteCajaSuccess]);
+
+    useEffect(() => {
+        if (!reopenTarimaSuccess) return;
+        const timeoutId = window.setTimeout(() => setReopenTarimaSuccess(null), 4000);
+        return () => window.clearTimeout(timeoutId);
+    }, [reopenTarimaSuccess]);
+
+    useEffect(() => {
+        if (!closeTarimaSuccess) return;
+        const timeoutId = window.setTimeout(() => setCloseTarimaSuccess(null), 4000);
+        return () => window.clearTimeout(timeoutId);
+    }, [closeTarimaSuccess]);
+
+    useEffect(() => {
+        if (!registerSuccess) return;
+        const timeoutId = window.setTimeout(() => setRegisterSuccess(null), 4000);
+        return () => window.clearTimeout(timeoutId);
+    }, [registerSuccess]);
+
+    useEffect(() => {
+        if (!registerStatusMessage) return;
+        const timeoutId = window.setTimeout(() => setRegisterStatusMessage(null), 4000);
+        return () => window.clearTimeout(timeoutId);
+    }, [registerStatusMessage]);
+
+    useEffect(() => {
+        if (!createTarimaError) return;
+        const timeoutId = window.setTimeout(() => setCreateTarimaError(null), 5000);
+        return () => window.clearTimeout(timeoutId);
+    }, [createTarimaError]);
+
+    useEffect(() => {
+        if (!deleteTarimaError) return;
+        const timeoutId = window.setTimeout(() => setDeleteTarimaError(null), 5000);
+        return () => window.clearTimeout(timeoutId);
+    }, [deleteTarimaError]);
+
+    useEffect(() => {
+        if (!deleteCajaError) return;
+        const timeoutId = window.setTimeout(() => setDeleteCajaError(null), 5000);
+        return () => window.clearTimeout(timeoutId);
+    }, [deleteCajaError]);
+
+    useEffect(() => {
+        if (!reopenTarimaError) return;
+        const timeoutId = window.setTimeout(() => setReopenTarimaError(null), 5000);
+        return () => window.clearTimeout(timeoutId);
+    }, [reopenTarimaError]);
+
+    useEffect(() => {
+        if (!closeTarimaError) return;
+        const timeoutId = window.setTimeout(() => setCloseTarimaError(null), 5000);
+        return () => window.clearTimeout(timeoutId);
+    }, [closeTarimaError]);
+
+    useEffect(() => {
         const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
         setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
     }, [dashboardData?.piezasPorCaja]);
+
+    useEffect(() => {
+        selectedTarimaIdRef.current = selectedTarima?.tarimaId ?? null;
+    }, [selectedTarima?.tarimaId]);
 
     const handleAddDefectoItem = () => {
         setDefectosCajaInput((prev) => [...prev, { defectoId: null, cantidad: "", comentario: "" }]);
@@ -377,7 +493,121 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setSelectedTarima(updated);
             fetchTarimaActivaDetalle(updated.tarimaId);
         }
-    }, [tarimasActivas]);
+    }, [tarimasActivas, selectedTarima, fetchTarimaActivaDetalle]);
+
+    const refreshVerificationData = useCallback((options?: {
+        includeTerminadas?: boolean;
+        includeDefectos?: boolean;
+        tarimaId?: number | null;
+    }) => {
+        const includeTerminadas = options?.includeTerminadas ?? true;
+        const includeDefectos = options?.includeDefectos ?? false;
+        const currentTarimaId = options?.tarimaId ?? selectedTarimaIdRef.current;
+
+        fetchDashboardData({ silent: true });
+        fetchTarimasActivas();
+        if (includeTerminadas) {
+            fetchTarimasTerminadas();
+        }
+        if (includeDefectos) {
+            fetchDefectosResumen();
+        }
+        if (currentTarimaId) {
+            fetchTarimaActivaDetalle(currentTarimaId);
+        }
+    }, [fetchDashboardData, fetchTarimasActivas, fetchTarimasTerminadas, fetchDefectosResumen, fetchTarimaActivaDetalle]);
+
+    useEffect(() => {
+        if (!verificationId) return;
+
+        const hubUrl = `${new URL(API_BASE_URL).origin}/verificacionHub`;
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl(hubUrl)
+            .withAutomaticReconnect()
+            .build();
+
+        const onCajaEscaneada = (data: CajaEscaneadaEvent) => {
+            refreshVerificationData({
+                includeTerminadas: data.TarimaCompleta,
+                tarimaId: data.TarimaId,
+            });
+        };
+
+        const onTarimaCreada = (_data: TarimaCreadaEvent) => {
+            refreshVerificationData({ includeTerminadas: false });
+        };
+
+        const onTarimaCerrada = (data: TarimaCerradaEvent) => {
+            if (selectedTarimaIdRef.current === data.TarimaId) {
+                setSelectedTarima(null);
+            }
+            refreshVerificationData();
+        };
+
+        const onCajaEliminada = (data: CajaEliminadaEvent) => {
+            refreshVerificationData({
+                includeTerminadas: false,
+                includeDefectos: true,
+                tarimaId: data.TarimaId,
+            });
+        };
+
+        const onTarimaReabierta = (_data: TarimaReabiertaEvent) => {
+            refreshVerificationData();
+        };
+
+        const onTarimaEliminada = (data: TarimaEliminadaEvent) => {
+            if (selectedTarimaIdRef.current === data.TarimaId) {
+                setSelectedTarima(null);
+            }
+            refreshVerificationData({ includeTerminadas: false });
+        };
+
+        connection.on("CajaEscaneada", onCajaEscaneada);
+        connection.on("TarimaCreada", onTarimaCreada);
+        connection.on("TarimaCerrada", onTarimaCerrada);
+        connection.on("CajaEliminada", onCajaEliminada);
+        connection.on("TarimaReabierta", onTarimaReabierta);
+        connection.on("TarimaEliminada", onTarimaEliminada);
+
+        connection.onreconnected(async () => {
+            try {
+                await connection.invoke("UnirseAVerificacion", Number(verificationId));
+            } catch (hubError) {
+                console.error("Error al reingresar al grupo de verificación:", hubError);
+            }
+        });
+
+        const connect = async () => {
+            try {
+                await connection.start();
+                await connection.invoke("UnirseAVerificacion", Number(verificationId));
+            } catch (hubError) {
+                console.error("No se pudo conectar al hub de verificación:", hubError);
+            }
+        };
+
+        connect();
+
+        return () => {
+            const leaveAndStop = async () => {
+                try {
+                    if (connection.state === signalR.HubConnectionState.Connected) {
+                        await connection.invoke("SalirDeVerificacion", Number(verificationId));
+                    }
+                } catch (hubError) {
+                    console.error("Error al salir del grupo de verificación:", hubError);
+                } finally {
+                    try {
+                        await connection.stop();
+                    } catch (hubError) {
+                        console.error("Error al detener la conexión SignalR:", hubError);
+                    }
+                }
+            };
+            void leaveAndStop();
+        };
+    }, [verificationId, refreshVerificationData]);
 
     const handleQtyUomCaptureClick = () => {
         setQtyUomScanError(null);
@@ -492,7 +722,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-4" />
                         <h3 className="text-lg font-medium text-card-foreground mb-2">Error al cargar</h3>
                         <p className="text-muted-foreground mb-6">{error}</p>
-                        <Button onClick={fetchDashboardData}>Reintentar Carga</Button>
+                        <Button onClick={() => fetchDashboardData()}>Reintentar Carga</Button>
                     </CardContent>
                 </Card>
             </div>
@@ -559,7 +789,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchDashboardData();
-            setTimeout(() => router.refresh(), 300);
         } catch (err: any) {
             setCreateTarimaError(err.message || "Error de conexión al crear tarima.");
         } finally {
@@ -589,7 +818,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setTarimasActivas((prev) => prev.filter((t) => t.tarimaId !== tarimaId));
             if (selectedTarima?.tarimaId === tarimaId) setSelectedTarima(null);
             setDeleteTarimaConfirmId(null);
-            fetchDashboardData();
+            refreshVerificationData({ includeTerminadas: false, tarimaId: null });
         } catch (err: any) {
             setDeleteTarimaError(err.message || "Error de conexión al eliminar tarima.");
         } finally {
@@ -780,7 +1009,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             fetchTarimasTerminadas();
             fetchTarimaActivaDetalle(selectedTarima.tarimaId);
             fetchDashboardData();
-            setTimeout(() => router.refresh(), 300);
 
             if (tieneDefectosInput && data?.ultimoDetalleId) {
                 setIsEvidenceModalOpen(true);
@@ -908,7 +1136,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchDashboardData();
-            setTimeout(() => router.refresh(), 300);
             setSelectedTarima(null);
         } catch (err: any) {
             setCloseTarimaError(err.message || "Error de conexión al cerrar tarima.");
@@ -951,7 +1178,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchDashboardData();
-            setTimeout(() => router.refresh(), 300);
         } catch (err: any) {
             setReopenTarimaError(err.message || "Error de conexión al reabrir la tarima.");
         } finally {
