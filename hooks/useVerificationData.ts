@@ -121,17 +121,45 @@ export function useVerificationData(): HookResult {
     setConsolidatedData(null);
 
     try {
-        const urlEtiqueta = `${API_BASE_URL}/EtiquetaIndividual/individual/${trazabilityCode}`;
-        let resEtiqueta: Response;
+        const urlProduccionBolseo = `${API_BASE_URL}/ProduccionBolseo/${encodeURIComponent(trazabilityCode)}`;
+        let resProduccionBolseo: Response;
         try {
-            resEtiqueta = await fetch(urlEtiqueta);
+            resProduccionBolseo = await fetch(urlProduccionBolseo);
         } catch (err) {
             throw classifyApiError(err, undefined, `trazabilidad ${trazabilityCode}`);
         }
-        if (!resEtiqueta.ok) {
-            throw classifyApiError(new Error(`HTTP ${resEtiqueta.status}`), resEtiqueta.status, `trazabilidad ${trazabilityCode}`);
+        if (!resProduccionBolseo.ok) {
+            throw classifyApiError(
+                new Error(`HTTP ${resProduccionBolseo.status}`),
+                resProduccionBolseo.status,
+                `trazabilidad ${trazabilityCode}`
+            );
         }
-        const etiquetaData = await resEtiqueta.json();
+        const produccionBolseoData = await resProduccionBolseo.json();
+
+        const claveProducto = String(produccionBolseoData?.codigoProducto ?? "").trim();
+        const pedidosRaw = String(produccionBolseoData?.pedidos ?? "").trim();
+        const orden = Number(pedidosRaw);
+
+        if (!claveProducto || !pedidosRaw || Number.isNaN(orden)) {
+            throw classifyApiError(
+                new Error("Respuesta incompleta"),
+                404,
+                `trazabilidad ${trazabilityCode}`
+            );
+        }
+
+        const etiquetaData = {
+            id: 0,
+            area: "BIOFLEX",
+            claveProducto,
+            nombreProducto: String(produccionBolseoData?.producto ?? "").trim(),
+            orden,
+            trazabilidad: trazabilityCode,
+            printCard: String(produccionBolseoData?.printCard ?? "").trim() || null,
+            uom: "",
+            maquina: "",
+        };
 
         await fetchComplementaryData(etiquetaData, 'BIOFLEX');
 

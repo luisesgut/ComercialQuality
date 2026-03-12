@@ -11,21 +11,9 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, TrendingUp, Package, Hash, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, ChevronsUpDown, Camera, QrCode, Printer, Trash2, ExternalLink } from 'lucide-react';
-import { TarimaLabelModal } from "@/components/TarimaLabelModal";
-import { TarimaQRModal } from "@/components/TarimaQRModal";
-import type { TarimaDetalle } from "@/hooks/useTarimaDetail";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, Camera, Trash2, ExternalLink } from 'lucide-react';
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -42,6 +30,38 @@ interface TarimaActiva {
     usuarioCreo: string;
 }
 
+interface TarimaActivaDefecto {
+    detalle: string;
+    familia: string;
+    cantidad: number;
+    comentario: string | null;
+}
+
+interface TarimaActivaCaja {
+    detalleId: number;
+    identificador: string;
+    cantidad: number;
+    piezasAuditadas: number;
+    tieneDefectos: boolean;
+    comentarios: string | null;
+    horaEscaneo: string;
+    defectos: TarimaActivaDefecto[];
+}
+
+interface TarimaActivaDetalle {
+    tarimaId: number;
+    numeroTarima: number;
+    verificacionId: number;
+    estado: string;
+    puedeEditar: boolean;
+    cajasEscaneadas: number;
+    cajasMeta: number;
+    usuarioCreo: string;
+    fechaInicio: string;
+    fechaCierre: string | null;
+    cajas: TarimaActivaCaja[];
+}
+
 interface TarimaTerminadaCaja {
     detalleId: number;
     identificador: string;
@@ -50,6 +70,15 @@ interface TarimaTerminadaCaja {
     tieneDefectos: boolean;
     comentarios: string | null;
     horaEscaneo: string;
+    defectos?: TarimaTerminadaDefecto[];
+}
+
+interface TarimaTerminadaDefecto {
+    defectoId?: number;
+    detalle?: string;
+    nombre?: string;
+    cantidad?: number;
+    comentario?: string | null;
 }
 
 interface TarimaTerminada {
@@ -58,42 +87,29 @@ interface TarimaTerminada {
     cajasRegistradas: number;
     usuario: string;
     fechaCierre: string;
+    estatusCierre: string | null;
+    comentarioCierre: string | null;
     cajas: TarimaTerminadaCaja[];
 }
 
-const DEFECTO_OPTIONS = [
-    "Perforaciones en texto/ausentes",
-    "Etiqueta ausente",
-    "Cantidad de piezas incorrecta",
-    "Bolsa fuera de wicket",
-    "Bolsa pegada del sello lateral",
-    "Pestaña fuera de dimensiones",
-    "Sello contaminado",
-    "Bolsa dañada",
-    "Orificios de wicket movidos",
-    "Inocuidad (manchas u objetos dentro de cajas)",
-    "Rebaba en perforaciones",
-    "SELLO DÉBIL",
-    "Precorte duro o fuera de lugar",
-    "Sin tapones o carton wicket",
-    "Notas en cinta o caja",
-    "Precorte de wicket faltante",
-    "Restos de sello (huesillo)",
-    "Caja dañada",
-    "Fuelle desfasado",
-    "Mal refilado",
-    "Empalmes",
-    "BLOQUEO",
-    "ZIPPER DÉBIL",
-    "Bolsas desacomodadas",
-    "Zipper fuera de distancia",
-    "Fuelle deforme",
-    "Muestras equivocadas",
-    "Wicket alrevés",
-    "Etiqueta erronea",
-    "Desprendimiento de tinta",
-    "Sin tratado",
-];
+interface DefectoCatalogItem {
+    id: number;
+    detalle: string;
+    familia: string;
+}
+
+interface DefectoCajaInputItem {
+    defectoId: number | null;
+    cantidad: string;
+    comentario: string;
+}
+
+interface DefectoResumenItem {
+    familia: string;
+    detalle: string;
+    vecesPresentado: number;
+    piezasAfectadas: number;
+}
 
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
@@ -111,6 +127,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isTarimasTerminadasLoading, setIsTarimasTerminadasLoading] = useState(false);
     const [tarimasTerminadasError, setTarimasTerminadasError] = useState<string | null>(null);
     const [selectedTarima, setSelectedTarima] = useState<TarimaActiva | null>(null);
+    const [tarimaActivaDetalle, setTarimaActivaDetalle] = useState<TarimaActivaDetalle | null>(null);
+    const [isTarimaActivaDetalleLoading, setIsTarimaActivaDetalleLoading] = useState(false);
+    const [tarimaActivaDetalleError, setTarimaActivaDetalleError] = useState<string | null>(null);
+    const [deletingCajaId, setDeletingCajaId] = useState<number | null>(null);
+    const [deleteCajaError, setDeleteCajaError] = useState<string | null>(null);
+    const [deleteCajaSuccess, setDeleteCajaSuccess] = useState<string | null>(null);
     const [isCreatingTarima, setIsCreatingTarima] = useState(false);
     const [createTarimaError, setCreateTarimaError] = useState<string | null>(null);
     const [createTarimaSuccess, setCreateTarimaSuccess] = useState<string | null>(null);
@@ -122,13 +144,20 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
     const [tieneDefectosInput, setTieneDefectosInput] = useState(false);
-    const [comentariosDefectoInput, setComentariosDefectoInput] = useState<string[]>([]);
+    const [catalogoDefectos, setCatalogoDefectos] = useState<DefectoCatalogItem[]>([]);
+    const [isCatalogoDefectosLoading, setIsCatalogoDefectosLoading] = useState(false);
+    const [catalogoDefectosError, setCatalogoDefectosError] = useState<string | null>(null);
+    const [defectosCajaInput, setDefectosCajaInput] = useState<DefectoCajaInputItem[]>([
+        { defectoId: null, cantidad: "", comentario: "" },
+    ]);
+    const [defectosResumen, setDefectosResumen] = useState<DefectoResumenItem[]>([]);
+    const [isDefectosResumenLoading, setIsDefectosResumenLoading] = useState(false);
+    const [defectosResumenError, setDefectosResumenError] = useState<string | null>(null);
     const [isRegisteringScan, setIsRegisteringScan] = useState(false);
     const [registerError, setRegisterError] = useState<string | null>(null);
     const [registerSuccess, setRegisterSuccess] = useState<string | null>(null);
     const [registerStatusMessage, setRegisterStatusMessage] = useState<string | null>(null);
     const [lastDetalleId, setLastDetalleId] = useState<number | null>(null);
-    const [isDefectoOpen, setIsDefectoOpen] = useState(false);
     const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
     const [evidenceTargetId, setEvidenceTargetId] = useState<number | null>(null);
     const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([]);
@@ -136,7 +165,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [evidenceError, setEvidenceError] = useState<string | null>(null);
     const [evidenceSuccess, setEvidenceSuccess] = useState<string | null>(null);
     const [isCloseTarimaModalOpen, setIsCloseTarimaModalOpen] = useState(false);
-    const [closeTarimaMotivo, setCloseTarimaMotivo] = useState("");
+    const [closeTarimaEstatusCierre, setCloseTarimaEstatusCierre] = useState("");
+    const [closeTarimaAgregarComentario, setCloseTarimaAgregarComentario] = useState(false);
+    const [closeTarimaComentario, setCloseTarimaComentario] = useState("");
+    const [reopeningTarimaId, setReopeningTarimaId] = useState<number | null>(null);
+    const [reopenTarimaError, setReopenTarimaError] = useState<string | null>(null);
+    const [reopenTarimaSuccess, setReopenTarimaSuccess] = useState<string | null>(null);
     const [isClosingTarima, setIsClosingTarima] = useState(false);
     const [closeTarimaError, setCloseTarimaError] = useState<string | null>(null);
     const [closeTarimaSuccess, setCloseTarimaSuccess] = useState<string | null>(null);
@@ -150,10 +184,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isPzasCajaHelpOpen, setIsPzasCajaHelpOpen] = useState(false);
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
-    const [tarimaLabelData, setTarimaLabelData] = useState<TarimaDetalle | null>(null);
-    const [isTarimaLabelOpen, setIsTarimaLabelOpen] = useState(false);
-    const [isTarimaQROpen, setIsTarimaQROpen] = useState(false);
-    const [reprintLoadingId, setReprintLoadingId] = useState<number | null>(null);
     
     // Función para obtener los detalles del dashboard (GET a /dashboard/{id})
     const fetchDashboardData = async () => {
@@ -221,14 +251,80 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
     };
 
+    const fetchTarimaActivaDetalle = async (tarimaId: number) => {
+        setIsTarimaActivaDetalleLoading(true);
+        setTarimaActivaDetalleError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/tarima/${tarimaId}`);
+            if (!response.ok) {
+                throw new Error(`Error (${response.status}) al obtener detalle de la tarima.`);
+            }
+            const data: TarimaActivaDetalle = await response.json();
+            setTarimaActivaDetalle(data);
+        } catch (err: any) {
+            setTarimaActivaDetalleError(err.message || "Error de conexión al cargar detalle de tarima.");
+            setTarimaActivaDetalle(null);
+        } finally {
+            setIsTarimaActivaDetalleLoading(false);
+        }
+    };
+
+    const fetchCatalogoDefectos = async () => {
+        if (catalogoDefectos.length > 0) return;
+        setIsCatalogoDefectosLoading(true);
+        setCatalogoDefectosError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/catalogo-defectos`);
+            if (!response.ok) {
+                throw new Error(`Error (${response.status}) al obtener catálogo de defectos.`);
+            }
+            const data: DefectoCatalogItem[] = await response.json();
+            setCatalogoDefectos(Array.isArray(data) ? data : []);
+        } catch (err: any) {
+            setCatalogoDefectosError(err.message || "Error de conexión al cargar catálogo de defectos.");
+            setCatalogoDefectos([]);
+        } finally {
+            setIsCatalogoDefectosLoading(false);
+        }
+    };
+
+    const fetchDefectosResumen = async () => {
+        setIsDefectosResumenLoading(true);
+        setDefectosResumenError(null);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/defectos-verificacion/${verificationId}`);
+            if (!response.ok) {
+                throw new Error(`Error (${response.status}) al obtener resumen de defectos.`);
+            }
+            const data: DefectoResumenItem[] = await response.json();
+            setDefectosResumen(Array.isArray(data) ? data : []);
+        } catch (err: any) {
+            setDefectosResumenError(err.message || "Error de conexión al cargar resumen de defectos.");
+            setDefectosResumen([]);
+        } finally {
+            setIsDefectosResumenLoading(false);
+        }
+    };
+
     // Ejecutar el fetch al montar el componente y cuando el ID cambie
     useEffect(() => {
         if (verificationId) {
             fetchDashboardData();
             fetchTarimasActivas();
             fetchTarimasTerminadas();
+            fetchCatalogoDefectos();
+            fetchDefectosResumen();
         }
     }, [verificationId]);
+
+    useEffect(() => {
+        if (!selectedTarima) {
+            setTarimaActivaDetalle(null);
+            setTarimaActivaDetalleError(null);
+            return;
+        }
+        fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+    }, [selectedTarima?.tarimaId]);
 
     useEffect(() => {
         try {
@@ -252,6 +348,25 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setCloseTarimaSuccess(null);
     }, [selectedTarima]);
 
+    useEffect(() => {
+        const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
+        setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
+    }, [dashboardData?.piezasPorCaja]);
+
+    const handleAddDefectoItem = () => {
+        setDefectosCajaInput((prev) => [...prev, { defectoId: null, cantidad: "", comentario: "" }]);
+    };
+
+    const handleRemoveDefectoItem = (index: number) => {
+        setDefectosCajaInput((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+    };
+
+    const updateDefectoItem = (index: number, updates: Partial<DefectoCajaInputItem>) => {
+        setDefectosCajaInput((prev) =>
+            prev.map((item, i) => (i === index ? { ...item, ...updates } : item))
+        );
+    };
+
     // Sincronizar selectedTarima con los datos frescos de tarimasActivas.
     // Sin esto, selectedTarima.cajasLlevamos queda como snapshot stale
     // y el botón "Terminar tarima" permanece deshabilitado tras agregar la primera caja.
@@ -260,6 +375,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         const updated = tarimasActivas.find((t) => t.tarimaId === selectedTarima.tarimaId);
         if (updated && updated.cajasLlevamos !== selectedTarima.cajasLlevamos) {
             setSelectedTarima(updated);
+            fetchTarimaActivaDetalle(updated.tarimaId);
         }
     }, [tarimasActivas]);
 
@@ -387,6 +503,22 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
     const verifiedIdNumber = dashboardData.verificacionId;
     const currentVerificationType = getVerificationType();
+    const cajasMetaEstimadas =
+        dashboardData.piezasPorCaja && dashboardData.piezasPorCaja > 0
+            ? Math.ceil(dashboardData.piezasMeta / dashboardData.piezasPorCaja)
+            : null;
+    const cajasProgress = cajasMetaEstimadas && cajasMetaEstimadas > 0
+        ? Math.min(100, (dashboardData.cajasActuales / cajasMetaEstimadas) * 100)
+        : 0;
+    const defectosPorFamilia = catalogoDefectos.reduce<Record<string, DefectoCatalogItem[]>>((acc, defecto) => {
+        if (!acc[defecto.familia]) acc[defecto.familia] = [];
+        acc[defecto.familia].push(defecto);
+        return acc;
+    }, {});
+    const selectedTarimaDetalle =
+        selectedTarima && tarimaActivaDetalle?.tarimaId === selectedTarima.tarimaId
+            ? tarimaActivaDetalle
+            : null;
 
     const handleCreateTarima = async () => {
         setCreateTarimaError(null);
@@ -421,29 +553,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 throw new Error(detail);
             }
 
-            // Leer el body antes de cualquier otra llamada async
-            const createData = await response.json().catch(() => null);
+            await response.json().catch(() => null);
 
             setCreateTarimaSuccess("Tarima creada correctamente.");
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchDashboardData();
             setTimeout(() => router.refresh(), 300);
-
-            // Obtener detalle completo para mostrar etiqueta
-            const newTarimaId = createData?.tarimaId;
-            if (newTarimaId) {
-                try {
-                    const labelRes = await fetch(`${API_BASE_URL}/Verificacion/tarima/${newTarimaId}`);
-                    if (labelRes.ok) {
-                        const labelData = await labelRes.json();
-                        setTarimaLabelData(labelData);
-                        setIsTarimaLabelOpen(true);
-                    }
-                } catch {
-                    // Si falla el GET de la etiqueta no bloqueamos el flujo
-                }
-            }
         } catch (err: any) {
             setCreateTarimaError(err.message || "Error de conexión al crear tarima.");
         } finally {
@@ -489,22 +605,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setIsEvidenceModalOpen(true);
     };
 
-    const handleReprintLabel = async (tarimaId: number) => {
-        setReprintLoadingId(tarimaId);
-        try {
-            const res = await fetch(`${API_BASE_URL}/Verificacion/tarima/${tarimaId}`);
-            if (res.ok) {
-                const data = await res.json();
-                setTarimaLabelData(data);
-                setIsTarimaLabelOpen(true);
-            }
-        } catch {
-            // ignore
-        } finally {
-            setReprintLoadingId(null);
-        }
-    };
-
     const handleRegisterScan = async (event: React.FormEvent) => {
         event.preventDefault();
         if (!selectedTarima) return;
@@ -526,7 +626,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
 
         if (!qtyUomEtiquetaInput) {
-            setRegisterError("Ingrese las piezas por caja (Qty UOM).");
+            setRegisterError("No se encontro la cantidad de piezas por caja para esta verificación.");
             return;
         }
 
@@ -553,9 +653,25 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
-        if (tieneDefectosInput && comentariosDefectoInput.length === 0) {
-            setRegisterError("Seleccione al menos un tipo de defecto.");
-            return;
+        const defectosCapturados = defectosCajaInput.filter((item) =>
+            item.defectoId !== null || item.cantidad.trim() !== "" || item.comentario.trim() !== ""
+        );
+        if (tieneDefectosInput) {
+            if (defectosCapturados.length === 0) {
+                setRegisterError("Agregue al menos un defecto para la caja.");
+                return;
+            }
+            for (const item of defectosCapturados) {
+                const cantidad = Number(item.cantidad);
+                if (!item.defectoId) {
+                    setRegisterError("Seleccione el defecto en cada registro capturado.");
+                    return;
+                }
+                if (!Number.isFinite(cantidad) || cantidad <= 0) {
+                    setRegisterError("La cantidad afectada debe ser mayor a 0 en cada defecto.");
+                    return;
+                }
+            }
         }
 
         const tipoEtiqueta = currentVerificationType;
@@ -568,9 +684,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             qtyUomEtiqueta: qtyUomEtiquetaInput,
             tipoEtiqueta,
             piezasAuditadas: piezasAuditadasValue,
-            ...(tieneDefectosInput
-                ? { tieneDefectos: true, comentariosDefecto: comentariosDefectoInput.join(" | ") }
-                : {}),
         };
 
         setIsRegisteringScan(true);
@@ -612,14 +725,60 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             } else {
                 setLastDetalleId(null);
             }
+
+            const numeroCaja = Number(data?.numeroCaja ?? selectedTarima.cajasLlevamos + 1);
+            if (tieneDefectosInput) {
+                const defectosPayload = defectosCapturados.map((item) => ({
+                    defectoId: Number(item.defectoId),
+                    cantidad: Number(item.cantidad),
+                    comentario: item.comentario.trim() || null,
+                }));
+                const defectosResponse = await fetch(`${API_BASE_URL}/Verificacion/registrar-defectos-caja`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                   body: JSON.stringify({
+                     tarimaId: selectedTarima.tarimaId,
+                     verificacionId: verifiedIdNumber,
+                    detalleId: data.ultimoDetalleId, 
+                    numeroCaja,
+                    defectos: defectosPayload,
+}),
+                });
+                if (!defectosResponse.ok) {
+                    let detail = `Error (${defectosResponse.status}) al registrar defectos de la caja.`;
+                    try {
+                        const errorText = await defectosResponse.text();
+                        if (errorText) {
+                            try {
+                                const errorData = JSON.parse(errorText);
+                                detail = errorData.detail || errorData.message || errorData.error || detail;
+                            } catch {
+                                detail = errorText;
+                            }
+                        }
+                    } catch {
+                        // ignore parse error
+                    }
+                    throw new Error(detail);
+                }
+                fetchDefectosResumen();
+                setRegisterStatusMessage(`Caja #${numeroCaja} escaneada y defectos registrados.`);
+            } else {
+                setRegisterStatusMessage(`Caja #${numeroCaja} escaneada correctamente.`);
+            }
+
             setTrazabilidadInput("");
             setConsecutivoManualInput("");
-            setQtyUomEtiquetaInput("");
+            const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
+            setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
             setPiezasAuditadasInput("");
             setTieneDefectosInput(false);
-            setComentariosDefectoInput([]);
+            setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
             fetchTarimasActivas();
             fetchTarimasTerminadas();
+            fetchTarimaActivaDetalle(selectedTarima.tarimaId);
             fetchDashboardData();
             setTimeout(() => router.refresh(), 300);
 
@@ -702,8 +861,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setCloseTarimaError(null);
         setCloseTarimaSuccess(null);
 
-        if (!closeTarimaMotivo.trim()) {
-            setCloseTarimaError("Ingrese el motivo de cierre.");
+        if (!closeTarimaEstatusCierre) {
+            setCloseTarimaError("Seleccione el estatus de cierre.");
             return;
         }
 
@@ -718,7 +877,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 body: JSON.stringify({
                     verificacionId: verifiedIdNumber,
                     tarimaId: selectedTarima.tarimaId,
-                    motivo: closeTarimaMotivo.trim(),
+                    estatusCierre: closeTarimaEstatusCierre,
+                    motivo: closeTarimaAgregarComentario ? closeTarimaComentario.trim() : "",
                 }),
             });
 
@@ -741,7 +901,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
 
             setCloseTarimaSuccess("Tarima cerrada correctamente.");
-            setCloseTarimaMotivo("");
+            setCloseTarimaEstatusCierre("");
+            setCloseTarimaAgregarComentario(false);
+            setCloseTarimaComentario("");
             setTimeout(() => setIsCloseTarimaModalOpen(false), 600);
             fetchTarimasActivas();
             fetchTarimasTerminadas();
@@ -752,6 +914,89 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setCloseTarimaError(err.message || "Error de conexión al cerrar tarima.");
         } finally {
             setIsClosingTarima(false);
+        }
+    };
+
+    const handleReopenTarima = async (tarima: TarimaTerminada) => {
+        setReopenTarimaError(null);
+        setReopenTarimaSuccess(null);
+
+        const shouldContinue = window.confirm(`Se reabrira la tarima #${tarima.numeroTarima}. Desea continuar?`);
+        if (!shouldContinue) return;
+
+        setReopeningTarimaId(tarima.tarimaId);
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/reabrir-tarima/${tarima.tarimaId}`, {
+                method: "PUT",
+            });
+            if (!response.ok) {
+                let detail = `Error (${response.status}) al reabrir tarima.`;
+                try {
+                    const errorText = await response.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || errorData.error || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
+            }
+
+            setReopenTarimaSuccess(`Tarima #${tarima.numeroTarima} reabierta correctamente.`);
+            fetchTarimasActivas();
+            fetchTarimasTerminadas();
+            fetchDashboardData();
+            setTimeout(() => router.refresh(), 300);
+        } catch (err: any) {
+            setReopenTarimaError(err.message || "Error de conexión al reabrir la tarima.");
+        } finally {
+            setReopeningTarimaId(null);
+        }
+    };
+
+    const handleDeleteCajaTarimaActiva = async (detalleId: number, tarimaId: number) => {
+        setDeleteCajaError(null);
+        setDeleteCajaSuccess(null);
+        const shouldContinue = window.confirm("Se eliminara la caja de la tarima activa. Desea continuar?");
+        if (!shouldContinue) return;
+
+        setDeletingCajaId(detalleId);
+        try {
+            const res = await fetch(`${API_BASE_URL}/Verificacion/eliminar-caja/${detalleId}`, {
+                method: "DELETE",
+            });
+            if (!res.ok) {
+                let detail = `Error (${res.status}) al eliminar caja.`;
+                try {
+                    const errorText = await res.text();
+                    if (errorText) {
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            detail = errorData.detail || errorData.message || errorData.error || detail;
+                        } catch {
+                            detail = errorText;
+                        }
+                    }
+                } catch {
+                    // ignore parse error
+                }
+                throw new Error(detail);
+            }
+
+            setDeleteCajaSuccess("Caja eliminada correctamente.");
+            fetchTarimaActivaDetalle(tarimaId);
+            fetchTarimasActivas();
+            fetchDashboardData();
+            fetchDefectosResumen();
+        } catch (err: any) {
+            setDeleteCajaError(err.message || "Error de conexión al eliminar la caja.");
+        } finally {
+            setDeletingCajaId(null);
         }
     };
 
@@ -866,7 +1111,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <p className="text-sm font-bold mt-0.5">{dashboardData.loteOrden}</p>
                             </div>
                             <div>
-                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Meta piezas</p>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Piezas del pedido</p>
                                 <p className="text-sm font-bold mt-0.5">{dashboardData.piezasMeta.toLocaleString()}</p>
                             </div>
                             <div>
@@ -907,6 +1152,21 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 style={{ width: `${dashboardData.porcentajeAvance}%` }}
                             />
                         </div>
+                        <div className="mt-3 space-y-1.5">
+                            <div className="flex items-center justify-between text-xs font-medium">
+                                <span className="text-muted-foreground">Cajas registradas</span>
+                                <span className="text-foreground">
+                                    {dashboardData.cajasActuales}
+                                    {cajasMetaEstimadas ? ` / ${cajasMetaEstimadas}` : ""}
+                                </span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                                <div
+                                    className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                                    style={{ width: `${cajasProgress}%` }}
+                                />
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
                 <div className="grid grid-cols-3 gap-3">
@@ -936,7 +1196,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     </Card>
                 </div>
             </div>
-            
+
             {/* PASO 1: Seleccionar Tarima */}
             <Card className="border-0 shadow-lg bg-card">
                 <CardHeader className="pb-3">
@@ -955,20 +1215,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => { fetchTarimasActivas(); fetchTarimasTerminadas(); }}
+                                onClick={() => {
+                                    fetchTarimasActivas();
+                                    fetchTarimasTerminadas();
+                                    if (selectedTarima) fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+                                }}
                                 disabled={isTarimasLoading}
                                 className="h-10 px-3 text-sm"
                             >
                                 {isTarimasLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refrescar"}
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="h-10 px-3 text-sm"
-                                onClick={() => setIsTarimaQROpen(true)}
-                                title="Gestionar tarima por QR"
-                            >
-                                <QrCode className="w-4 h-4" />
                             </Button>
                             <Button
                                 className="h-10 px-4 text-sm font-semibold"
@@ -999,6 +1254,18 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             {tarimasError}
                         </div>
                     )}
+                    {deleteCajaError && (
+                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            {deleteCajaError}
+                        </div>
+                    )}
+                    {deleteCajaSuccess && (
+                        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-100 p-3 rounded-lg">
+                            <Check className="w-4 h-4 shrink-0" />
+                            {deleteCajaSuccess}
+                        </div>
+                    )}
                     {!isTarimasLoading && !tarimasError && tarimasActivas.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
                             <Truck className="w-10 h-10 opacity-25" />
@@ -1012,40 +1279,44 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 ? Math.min(100, (tarima.cajasLlevamos / tarima.meta) * 100)
                                 : 0;
                             return (
-                                <button
-                                    type="button"
+                                <div
                                     key={tarima.tarimaId}
-                                    onClick={() => setSelectedTarima(tarima)}
-                                    className={`rounded-xl border-2 p-5 text-left transition-all active:scale-[0.98] ${
+                                    className={`rounded-xl border-2 p-5 text-left transition-all ${
                                         isSelected
                                             ? "border-primary bg-primary/10 shadow-md"
                                             : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                                     }`}
                                 >
-                                    <div className="flex items-start justify-between mb-3">
-                                        <div>
-                                            <p className="text-xs text-muted-foreground uppercase tracking-wide">Tarima</p>
-                                            <p className="text-3xl font-bold mt-0.5">#{tarima.numeroTarima}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedTarima(tarima)}
+                                        className="w-full text-left"
+                                    >
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div>
+                                                <p className="text-xs text-muted-foreground uppercase tracking-wide">Tarima</p>
+                                                <p className="text-3xl font-bold mt-0.5">#{tarima.numeroTarima}</p>
+                                            </div>
+                                            <div className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold ${
+                                                isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                                            }`}>
+                                                {isSelected && <Check className="w-3 h-3" />}
+                                                {isSelected ? "Activa" : "Seleccionar"}
+                                            </div>
                                         </div>
-                                        <div className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold ${
-                                            isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                                        }`}>
-                                            {isSelected && <Check className="w-3 h-3" />}
-                                            {isSelected ? "Activa" : "Seleccionar"}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm font-medium">
+                                                <span>{tarima.cajasLlevamos} / {tarima.meta} cajas</span>
+                                                <span className="text-primary font-bold">{Math.round(progress)}%</span>
+                                            </div>
+                                            <div className="h-3 rounded-full bg-muted overflow-hidden">
+                                                <div
+                                                    className="h-full rounded-full bg-primary transition-all"
+                                                    style={{ width: `${progress}%` }}
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between text-sm font-medium">
-                                            <span>{tarima.cajasLlevamos} / {tarima.meta} cajas</span>
-                                            <span className="text-primary font-bold">{Math.round(progress)}%</span>
-                                        </div>
-                                        <div className="h-3 rounded-full bg-muted overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full bg-primary transition-all"
-                                                style={{ width: `${progress}%` }}
-                                            />
-                                        </div>
-                                    </div>
+                                    </button>
                                     <div className="mt-3 flex items-center justify-between">
                                         <p className="text-xs text-muted-foreground">Por: {tarima.usuarioCreo}</p>
                                         <div className="flex items-center gap-1">
@@ -1059,154 +1330,110 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     Eliminar
                                                 </button>
                                             )}
-                                            <button
-                                                type="button"
-                                                onClick={(e) => { e.stopPropagation(); handleReprintLabel(tarima.tarimaId); }}
-                                                disabled={reprintLoadingId === tarima.tarimaId}
-                                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-primary/10"
-                                            >
-                                                {reprintLoadingId === tarima.tarimaId
-                                                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                                                    : <Printer className="w-3 h-3" />
-                                                }
-                                                Etiqueta
-                                            </button>
                                         </div>
                                     </div>
-                                </button>
+                                </div>
                             );
                         })}
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Tarimas Terminadas */}
-            <Card className="border-0 shadow-lg bg-card">
-                <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg flex items-center gap-2">
-                            <CheckSquare className="w-5 h-5 text-primary" />
-                            Tarimas Terminadas
-                        </CardTitle>
-                        {tarimasTerminadas.length > 0 && (
-                            <span className="text-sm font-semibold bg-primary/10 text-primary px-3 py-1 rounded-full">
-                                {tarimasTerminadas.length} tarima{tarimasTerminadas.length !== 1 ? "s" : ""}
-                            </span>
+            {selectedTarima && (
+                <Card className="border-0 shadow-lg bg-card">
+                    <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <CardTitle className="text-lg">Cajas en Tarima Activa</CardTitle>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Tarima #{selectedTarima.numeroTarima}
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => fetchTarimaActivaDetalle(selectedTarima.tarimaId)}
+                                disabled={isTarimaActivaDetalleLoading}
+                                className="h-9 px-3 text-sm"
+                            >
+                                {isTarimaActivaDetalleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refrescar"}
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {tarimaActivaDetalleError && (
+                            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                                <AlertCircle className="w-4 h-4" />
+                                {tarimaActivaDetalleError}
+                            </div>
                         )}
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    {isTarimasTerminadasLoading && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Cargando...
-                        </div>
-                    )}
-                    {tarimasTerminadasError && (
-                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
-                            <AlertCircle className="w-4 h-4" />
-                            {tarimasTerminadasError}
-                        </div>
-                    )}
-                    {!isTarimasTerminadasLoading && !tarimasTerminadasError && tarimasTerminadas.length === 0 && (
-                        <p className="text-sm text-muted-foreground py-2">Sin tarimas terminadas todavía.</p>
-                    )}
-                    {tarimasTerminadas.length > 0 && (
-                        <Accordion type="single" collapsible className="space-y-2">
-                            {tarimasTerminadas.map((tarima) => {
-                                const defectCount = tarima.cajas.filter((c) => c.tieneDefectos).length;
-                                return (
-                                    <AccordionItem
-                                        key={tarima.tarimaId}
-                                        value={String(tarima.tarimaId)}
-                                        className="rounded-xl border border-border bg-muted/20 overflow-hidden px-0"
-                                    >
-                                        <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&>svg]:shrink-0">
-                                            <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                                                <CheckSquare className="w-4 h-4 text-primary shrink-0" />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-bold text-base">Tarima #{tarima.numeroTarima}</p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {tarima.cajasRegistradas} cajas · {tarima.usuario}
-                                                    </p>
-                                                    {tarima.cajas.length > 0 && (
-                                                        <div className="flex flex-wrap gap-1 mt-1.5">
-                                                            {tarima.cajas.map((caja) => (
-                                                                <span
-                                                                    key={caja.detalleId}
-                                                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium leading-none ${
-                                                                        caja.tieneDefectos
-                                                                            ? "bg-destructive/10 text-destructive border border-destructive/20"
-                                                                            : "bg-muted text-muted-foreground"
-                                                                    }`}
-                                                                >
-                                                                    {caja.identificador}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-2 shrink-0 mr-2">
-                                                    <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
-                                                        {tarima.cajasRegistradas} cj
+                        {!isTarimaActivaDetalleLoading && !tarimaActivaDetalleError && selectedTarimaDetalle?.cajas?.length === 0 && (
+                            <p className="text-sm text-muted-foreground">Sin cajas escaneadas en esta tarima.</p>
+                        )}
+                        {isTarimaActivaDetalleLoading && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Cargando cajas...
+                            </div>
+                        )}
+                        {!isTarimaActivaDetalleLoading && selectedTarimaDetalle?.cajas?.length ? (
+                            <div className="max-h-96 overflow-y-auto pr-1 space-y-2">
+                                {selectedTarimaDetalle.cajas.map((caja) => (
+                                    <div key={caja.detalleId} className="rounded-md border border-border px-3 py-2.5 bg-card">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium truncate">{caja.identificador}</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {caja.cantidad} pz · {caja.piezasAuditadas} auditadas
+                                                </p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {new Date(caja.horaEscaneo).toLocaleString()}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                {caja.tieneDefectos && (
+                                                    <span className="text-[10px] font-semibold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full">
+                                                        Con defecto
                                                     </span>
-                                                    {defectCount > 0 && (
-                                                        <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full">
-                                                            {defectCount} def
-                                                        </span>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteCajaTarimaActiva(caja.detalleId, selectedTarima.tarimaId)}
+                                                    disabled={deletingCajaId === caja.detalleId}
+                                                    className="flex items-center gap-1 text-xs text-destructive hover:text-destructive px-2 py-1 rounded hover:bg-destructive/10 disabled:opacity-60"
+                                                >
+                                                    {deletingCajaId === caja.detalleId ? (
+                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Trash2 className="w-3.5 h-3.5" />
                                                     )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => { e.stopPropagation(); handleReprintLabel(tarima.tarimaId); }}
-                                                        disabled={reprintLoadingId === tarima.tarimaId}
-                                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
-                                                        title="Reimprimir etiqueta"
-                                                    >
-                                                        {reprintLoadingId === tarima.tarimaId
-                                                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                            : <Printer className="w-3.5 h-3.5" />
-                                                        }
-                                                    </button>
+                                                    Eliminar
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {caja.tieneDefectos && Array.isArray(caja.defectos) && caja.defectos.length > 0 && (
+                                            <details className="mt-2 text-xs">
+                                                <summary className="cursor-pointer text-destructive font-medium">
+                                                    Ver defectos ({caja.defectos.length})
+                                                </summary>
+                                                <div className="mt-1 space-y-1 text-muted-foreground">
+                                                    {caja.defectos.map((defecto, idx) => (
+                                                        <p key={`${caja.detalleId}-defecto-${idx}`}>
+                                                            {defecto.detalle} · {defecto.familia} · {defecto.cantidad}
+                                                            {defecto.comentario ? ` · ${defecto.comentario}` : ""}
+                                                        </p>
+                                                    ))}
                                                 </div>
-                                            </div>
-                                        </AccordionTrigger>
-                                        <AccordionContent className="px-0 pb-0">
-                                            <div className="px-4 pb-2 text-xs text-muted-foreground border-t border-border pt-2">
-                                                Cerrada: {new Date(tarima.fechaCierre).toLocaleString()}
-                                            </div>
-                                            <div className="divide-y divide-border">
-                                                {tarima.cajas.map((caja) => (
-                                                    <div key={caja.detalleId} className="flex items-center justify-between gap-3 px-4 py-3">
-                                                        <div>
-                                                            <p className="font-medium text-sm">{caja.identificador}</p>
-                                                            <p className="text-xs text-muted-foreground">{caja.cantidad} pz · {caja.piezasAuditadas} auditadas</p>
-                                                        </div>
-                                                        <div className="flex items-center gap-2 shrink-0">
-                                                            {caja.tieneDefectos && (
-                                                                <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full">
-                                                                    Defecto
-                                                                </span>
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => openEvidenceForCaja(caja.detalleId)}
-                                                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
-                                                                title="Agregar fotos de evidencia"
-                                                            >
-                                                                <Camera className="w-3.5 h-3.5" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </AccordionContent>
-                                    </AccordionItem>
-                                );
-                            })}
-                        </Accordion>
-                    )}
-                </CardContent>
-            </Card>
+                                            </details>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
+                    </CardContent>
+                </Card>
+            )}
 
             {selectedTarima && (
                 <Card className="border-2 border-primary/30 shadow-xl bg-card">
@@ -1292,8 +1519,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 setQtyUomEtiquetaInput(e.target.value);
                                                 setQtyUomScanError(null);
                                             }}
-                                            placeholder="Ej. 1000"
-                                            disabled={isRegisteringScan}
+                                            placeholder="Valor fijo"
+                                            disabled={true}
+                                            readOnly
                                             min="1"
                                         />
                                         {currentVerificationType === "DESTINY" && (
@@ -1313,6 +1541,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     {qtyUomScanError && (
                                         <p className="text-xs text-destructive">{qtyUomScanError}</p>
                                     )}
+                                    <p className="text-xs text-muted-foreground">
+                                        Valor fijo: {qtyUomEtiquetaInput || "—"}
+                                    </p>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="piezasAuditadas" className="text-base font-medium">Piezas Auditadas</Label>
@@ -1344,7 +1575,14 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div>
                                 <button
                                     type="button"
-                                    onClick={() => { if (!isRegisteringScan) setTieneDefectosInput(!tieneDefectosInput); }}
+                                    onClick={() => {
+                                        if (isRegisteringScan) return;
+                                        const nextValue = !tieneDefectosInput;
+                                        setTieneDefectosInput(nextValue);
+                                        if (!nextValue) {
+                                            setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
+                                        }
+                                    }}
                                     className={`w-full flex items-center justify-between rounded-xl border-2 p-4 text-left transition-colors ${
                                         tieneDefectosInput
                                             ? "border-destructive bg-destructive/10"
@@ -1366,94 +1604,88 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     </span>
                                 </button>
                                 {tieneDefectosInput && (
-                                    <div className="mt-3 space-y-2">
+                                    <div className="mt-3 space-y-3">
                                         <div className="flex items-center justify-between">
-                                            <Label htmlFor="comentariosDefecto" className="text-base font-medium">
-                                                Tipos de Defecto
-                                            </Label>
-                                            {comentariosDefectoInput.length > 0 && (
-                                                <span className="text-xs text-muted-foreground">
-                                                    {comentariosDefectoInput.length} seleccionado{comentariosDefectoInput.length > 1 ? "s" : ""}
-                                                </span>
-                                            )}
+                                            <Label className="text-base font-medium">Defectos de la caja</Label>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleAddDefectoItem}
+                                                disabled={isRegisteringScan || isCatalogoDefectosLoading}
+                                            >
+                                                + Agregar otro defecto
+                                            </Button>
                                         </div>
-                                        <Popover open={isDefectoOpen} onOpenChange={setIsDefectoOpen}>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    id="comentariosDefecto"
-                                                    variant="outline"
-                                                    role="combobox"
-                                                    aria-expanded={isDefectoOpen}
-                                                    className="h-14 w-full justify-between text-base border-2"
-                                                    disabled={isRegisteringScan}
-                                                >
-                                                    <span className="truncate text-left">
-                                                        {comentariosDefectoInput.length === 0
-                                                            ? "Seleccione los defectos encontrados"
-                                                            : comentariosDefectoInput.join(", ")}
-                                                    </span>
-                                                    <ChevronsUpDown className="ml-2 h-5 w-5 shrink-0 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                                                <Command className="**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:py-3 [&_[cmdk-item]]:text-base">
-                                                    <CommandInput placeholder="Buscar defecto..." />
-                                                    <CommandList className="max-h-72">
-                                                        <CommandEmpty>No se encontraron defectos.</CommandEmpty>
-                                                        <CommandGroup>
-                                                            {DEFECTO_OPTIONS.map((defecto) => {
-                                                                const selected = comentariosDefectoInput.includes(defecto);
-                                                                return (
-                                                                    <CommandItem
-                                                                        key={defecto}
-                                                                        value={defecto}
-                                                                        onSelect={(value) => {
-                                                                            setComentariosDefectoInput((prev) =>
-                                                                                prev.includes(value)
-                                                                                    ? prev.filter((d) => d !== value)
-                                                                                    : [...prev, value]
-                                                                            );
-                                                                            // No cerramos el popover para permitir selección múltiple
-                                                                        }}
-                                                                    >
-                                                                        <Check className={`mr-2 h-5 w-5 ${selected ? "opacity-100" : "opacity-0"}`} />
-                                                                        {defecto}
-                                                                    </CommandItem>
-                                                                );
-                                                            })}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                                {comentariosDefectoInput.length > 0 && (
-                                                    <div className="border-t p-2">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="w-full text-xs text-muted-foreground"
-                                                            onClick={() => setIsDefectoOpen(false)}
-                                                        >
-                                                            Listo ({comentariosDefectoInput.length} seleccionado{comentariosDefectoInput.length > 1 ? "s" : ""})
-                                                        </Button>
+                                        {isCatalogoDefectosLoading && (
+                                            <p className="text-sm text-muted-foreground">Cargando catálogo de defectos...</p>
+                                        )}
+                                        {catalogoDefectosError && (
+                                            <p className="text-sm text-destructive">{catalogoDefectosError}</p>
+                                        )}
+                                        {!isCatalogoDefectosLoading && !catalogoDefectosError && catalogoDefectos.length > 0 && (
+                                            <div className="space-y-3">
+                                                {defectosCajaInput.map((item, index) => (
+                                                    <div key={`defecto-item-${index}`} className="rounded-xl border border-border p-3 space-y-3 bg-muted/10">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                            <div className="sm:col-span-2 space-y-1">
+                                                                <Label className="text-sm">Defecto</Label>
+                                                                <Select
+                                                                    value={item.defectoId ? String(item.defectoId) : ""}
+                                                                    onValueChange={(value) => updateDefectoItem(index, { defectoId: Number(value) })}
+                                                                    disabled={isRegisteringScan}
+                                                                >
+                                                                    <SelectTrigger className="h-11">
+                                                                        <SelectValue placeholder="Seleccione un defecto" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent className="max-h-80">
+                                                                        {Object.entries(defectosPorFamilia).map(([familia, defectos]) => (
+                                                                            <SelectGroup key={familia}>
+                                                                                <SelectLabel>{familia}</SelectLabel>
+                                                                                {defectos.map((defecto) => (
+                                                                                    <SelectItem key={defecto.id} value={String(defecto.id)}>
+                                                                                        {defecto.detalle}
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                            </SelectGroup>
+                                                                        ))}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-sm">Cantidad afectada</Label>
+                                                                <Input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    value={item.cantidad}
+                                                                    onChange={(e) => updateDefectoItem(index, { cantidad: e.target.value })}
+                                                                    placeholder="Ej. 3"
+                                                                    disabled={isRegisteringScan}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-end gap-2">
+                                                            <div className="flex-1 space-y-1">
+                                                                <Label className="text-sm">Comentario (opcional)</Label>
+                                                                <Input
+                                                                    value={item.comentario}
+                                                                    onChange={(e) => updateDefectoItem(index, { comentario: e.target.value })}
+                                                                    placeholder="Detalle adicional"
+                                                                    disabled={isRegisteringScan}
+                                                                />
+                                                            </div>
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                onClick={() => handleRemoveDefectoItem(index)}
+                                                                disabled={isRegisteringScan || defectosCajaInput.length === 1}
+                                                                title="Quitar defecto"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </Button>
+                                                        </div>
                                                     </div>
-                                                )}
-                                            </PopoverContent>
-                                        </Popover>
-                                        {comentariosDefectoInput.length > 0 && (
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {comentariosDefectoInput.map((d) => (
-                                                    <span
-                                                        key={d}
-                                                        className="flex items-center gap-1 text-xs bg-destructive/10 text-destructive border border-destructive/20 px-2 py-1 rounded-full"
-                                                    >
-                                                        {d}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setComentariosDefectoInput((prev) => prev.filter((x) => x !== d))}
-                                                            className="hover:opacity-70 leading-none"
-                                                        >
-                                                            ×
-                                                        </button>
-                                                    </span>
                                                 ))}
                                             </div>
                                         )}
@@ -1500,6 +1732,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     onClick={() => {
                                         setCloseTarimaError(null);
                                         setCloseTarimaSuccess(null);
+                                        setCloseTarimaEstatusCierre("");
+                                        setCloseTarimaAgregarComentario(false);
+                                        setCloseTarimaComentario("");
                                         setIsCloseTarimaModalOpen(true);
                                     }}
                                     disabled={
@@ -1516,6 +1751,248 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     </CardContent>
                 </Card>
             )}
+
+            {/* Tarimas Terminadas */}
+            <Card className="border-0 shadow-lg bg-card">
+                <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <CheckSquare className="w-5 h-5 text-primary" />
+                            Tarimas Terminadas
+                        </CardTitle>
+                        {tarimasTerminadas.length > 0 && (
+                            <span className="text-sm font-semibold bg-primary/10 text-primary px-3 py-1 rounded-full">
+                                {tarimasTerminadas.length} tarima{tarimasTerminadas.length !== 1 ? "s" : ""}
+                            </span>
+                        )}
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {isTarimasTerminadasLoading && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Cargando...
+                        </div>
+                    )}
+                    {tarimasTerminadasError && (
+                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            {tarimasTerminadasError}
+                        </div>
+                    )}
+                    {reopenTarimaError && (
+                        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            {reopenTarimaError}
+                        </div>
+                    )}
+                    {reopenTarimaSuccess && (
+                        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-100 p-3 rounded-lg">
+                            <Check className="w-4 h-4" />
+                            {reopenTarimaSuccess}
+                        </div>
+                    )}
+                    {!isTarimasTerminadasLoading && !tarimasTerminadasError && tarimasTerminadas.length === 0 && (
+                        <p className="text-sm text-muted-foreground py-2">Sin tarimas terminadas todavía.</p>
+                    )}
+                    {tarimasTerminadas.length > 0 && (
+                        <Accordion type="single" collapsible className="space-y-2">
+                            {tarimasTerminadas.map((tarima) => {
+                                const defectCount = tarima.cajas.filter((c) => c.tieneDefectos).length;
+                                const hasErrores = defectCount > 0;
+                                const estatusCierre = (tarima.estatusCierre || "Sin estatus").trim();
+                                const estatusCierreClass =
+                                    estatusCierre.toLowerCase() === "aprobada"
+                                        ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                        : estatusCierre.toLowerCase() === "rechazada"
+                                            ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                            : "bg-amber-100 text-amber-700 border border-amber-200";
+                                return (
+                                    <AccordionItem
+                                        key={tarima.tarimaId}
+                                        value={String(tarima.tarimaId)}
+                                        className="rounded-xl border border-border bg-muted/20 overflow-hidden px-0"
+                                    >
+                                        <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&>svg]:shrink-0">
+                                            <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                                                <CheckSquare className="w-4 h-4 text-primary shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-bold text-base">Tarima #{tarima.numeroTarima}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {tarima.cajasRegistradas} cajas · {tarima.usuario}
+                                                    </p>
+                                                    {tarima.cajas.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                            {tarima.cajas.map((caja) => (
+                                                                <span
+                                                                    key={caja.detalleId}
+                                                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium leading-none ${
+                                                                        caja.tieneDefectos
+                                                                            ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                                                            : "bg-muted text-muted-foreground"
+                                                                    }`}
+                                                                >
+                                                                    {caja.identificador}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0 mr-2">
+                                                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${estatusCierreClass}`}>
+                                                        {estatusCierre}
+                                                    </span>
+                                                    <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-1 rounded-full">
+                                                        {tarima.cajasRegistradas} cj
+                                                    </span>
+                                                    <span
+                                                        className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                                                            hasErrores
+                                                                ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                                                : "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                                        }`}
+                                                    >
+                                                        {hasErrores
+                                                            ? `${defectCount} con error${defectCount !== 1 ? "es" : ""}`
+                                                            : "Sin errores"}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </AccordionTrigger>
+                                        <AccordionContent className="px-0 pb-0">
+                                            <div className="px-4 pb-2 border-t border-border pt-2 flex items-center justify-between gap-3">
+                                                <span className="text-xs text-muted-foreground">
+                                                    Cerrada: {new Date(tarima.fechaCierre).toLocaleString()}
+                                                </span>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-8"
+                                                    onClick={() => handleReopenTarima(tarima)}
+                                                    disabled={reopeningTarimaId === tarima.tarimaId}
+                                                >
+                                                    {reopeningTarimaId === tarima.tarimaId ? (
+                                                        <>
+                                                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                                            Reabriendo...
+                                                        </>
+                                                    ) : (
+                                                        "Reabrir tarima"
+                                                    )}
+                                                </Button>
+                                            </div>
+                                            {tarima.comentarioCierre && (
+                                                <div className="px-4 pb-2 text-xs text-muted-foreground">
+                                                    Comentario cierre: {tarima.comentarioCierre}
+                                                </div>
+                                            )}
+                                            <div className="divide-y divide-border">
+                                                {tarima.cajas.map((caja) => {
+                                                    const defectosCaja = Array.isArray(caja.defectos) ? caja.defectos : [];
+                                                    return (
+                                                        <div key={caja.detalleId} className="flex items-start justify-between gap-3 px-4 py-3">
+                                                            <div className="min-w-0">
+                                                                <p className="font-medium text-sm">{caja.identificador}</p>
+                                                                <p className="text-xs text-muted-foreground">{caja.cantidad} pz · {caja.piezasAuditadas} auditadas</p>
+                                                                {caja.tieneDefectos && defectosCaja.length > 0 && (
+                                                                    <details className="mt-2 text-xs">
+                                                                        <summary className="cursor-pointer text-destructive font-medium">
+                                                                            Ver detalle de errores ({defectosCaja.length})
+                                                                        </summary>
+                                                                        <div className="mt-1 space-y-1 text-muted-foreground">
+                                                                            {defectosCaja.map((defecto, index) => (
+                                                                                <p key={`${caja.detalleId}-defecto-${index}`}>
+                                                                                    {defecto.detalle || defecto.nombre || "Defecto"}
+                                                                                    {typeof defecto.cantidad === "number" ? ` · ${defecto.cantidad}` : ""}
+                                                                                    {defecto.comentario ? ` · ${defecto.comentario}` : ""}
+                                                                                </p>
+                                                                            ))}
+                                                                        </div>
+                                                                    </details>
+                                                                )}
+                                                                {caja.tieneDefectos && defectosCaja.length === 0 && caja.comentarios && (
+                                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                                        Error: {caja.comentarios}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                {caja.tieneDefectos && (
+                                                                    <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full">
+                                                                        Con defecto
+                                                                    </span>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openEvidenceForCaja(caja.detalleId)}
+                                                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
+                                                                    title="Agregar fotos de evidencia"
+                                                                >
+                                                                    <Camera className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                );
+                            })}
+                        </Accordion>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-md bg-card">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-primary" />
+                        Resumen de defectos
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                    {isDefectosResumenLoading && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Cargando resumen de defectos...
+                        </div>
+                    )}
+                    {defectosResumenError && (
+                        <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+                            {defectosResumenError}
+                        </div>
+                    )}
+                    {!isDefectosResumenLoading && !defectosResumenError && defectosResumen.length === 0 && (
+                        <p className="text-sm text-muted-foreground">Sin defectos registrados todavía.</p>
+                    )}
+                    {defectosResumen.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-muted-foreground border-b">
+                                        <th className="py-2 pr-3 font-medium">Familia</th>
+                                        <th className="py-2 pr-3 font-medium">Detalle</th>
+                                        <th className="py-2 pr-3 font-medium">Veces</th>
+                                        <th className="py-2 font-medium">Piezas afectadas</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {defectosResumen.map((item, idx) => (
+                                        <tr key={`res-def-${idx}-${item.detalle}`} className="border-b last:border-b-0">
+                                            <td className="py-2 pr-3">{item.familia}</td>
+                                            <td className="py-2 pr-3">{item.detalle}</td>
+                                            <td className="py-2 pr-3 font-medium">{item.vecesPresentado}</td>
+                                            <td className="py-2 font-medium">{item.piezasAfectadas}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
 
             {isConsecutivoHelpOpen && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -1698,29 +2175,55 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
 
                         <p className="text-muted-foreground text-sm">
-                            Indique el motivo por el cual se cierra la tarima.
+                            Seleccione el estatus de cierre y, si aplica, agregue un comentario.
                         </p>
 
                         <form onSubmit={handleCloseTarimaSubmit} className="space-y-4">
                             <div className="space-y-2">
-                                <Label htmlFor="motivoTarima" className="text-card-foreground">
-                                    Resultado
+                                <Label htmlFor="estatusCierreTarima" className="text-card-foreground">
+                                    Estatus de cierre
                                 </Label>
                                 <Select
-                                    value={closeTarimaMotivo}
-                                    onValueChange={setCloseTarimaMotivo}
+                                    value={closeTarimaEstatusCierre}
+                                    onValueChange={setCloseTarimaEstatusCierre}
                                     disabled={isClosingTarima}
-                                    required
                                 >
-                                    <SelectTrigger className="w-full h-12">
-                                        <SelectValue placeholder="Seleccione el resultado de la tarima" />
+                                    <SelectTrigger id="estatusCierreTarima" className="w-full h-12">
+                                        <SelectValue placeholder="Seleccione el estatus de cierre" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="Tarima sin hallazgos">Tarima sin hallazgos</SelectItem>
-                                        <SelectItem value="Tarima con hallazgos">Tarima con hallazgos</SelectItem>
-                                        <SelectItem value="Tarima rechazada">Tarima rechazada</SelectItem>
+                                        <SelectItem value="Aprobada">Aprobada</SelectItem>
+                                        <SelectItem value="Con hallazgos">Con hallazgos</SelectItem>
+                                        <SelectItem value="Rechazada">Rechazada</SelectItem>
                                     </SelectContent>
                                 </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="flex items-center gap-2 text-sm font-medium text-card-foreground">
+                                    <input
+                                        type="checkbox"
+                                        checked={closeTarimaAgregarComentario}
+                                        onChange={(e) => {
+                                            setCloseTarimaAgregarComentario(e.target.checked);
+                                            if (!e.target.checked) {
+                                                setCloseTarimaComentario("");
+                                            }
+                                        }}
+                                        disabled={isClosingTarima}
+                                    />
+                                    Desea agregar comentario
+                                </label>
+                                {closeTarimaAgregarComentario && (
+                                    <Input
+                                        id="comentarioTarima"
+                                        value={closeTarimaComentario}
+                                        onChange={(e) => setCloseTarimaComentario(e.target.value)}
+                                        placeholder="Comentario de cierre"
+                                        disabled={isClosingTarima}
+                                        maxLength={300}
+                                    />
+                                )}
                             </div>
 
                             {closeTarimaError && (
@@ -1827,24 +2330,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
                     </div>
                 </div>
-            )}
-
-            {isTarimaLabelOpen && tarimaLabelData && (
-                <TarimaLabelModal
-                    tarima={tarimaLabelData}
-                    onClose={() => { setIsTarimaLabelOpen(false); setTarimaLabelData(null); }}
-                />
-            )}
-
-            {isTarimaQROpen && (
-                <TarimaQRModal
-                    onClose={() => setIsTarimaQROpen(false)}
-                    onUpdated={() => {
-                        fetchTarimasActivas();
-                        fetchTarimasTerminadas();
-                        fetchDashboardData();
-                    }}
-                />
             )}
 
             {isFinishModalOpen && (

@@ -59,10 +59,11 @@ export interface DashboardData {
     tiempoTranscurridoMinutos: number;
     cliente : "BIOFLEX" | "DESTINY" | "QUALITY";
     printCard?: string | null;
+    piezasPorCaja?: number;
 }
 
 export interface DestinyEtiquetaData {
-  id: number; // -> Se usará para POST: productoId
+  id: number;
   idLote: number;
   area: string;
   claveProducto: string;

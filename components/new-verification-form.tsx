@@ -455,7 +455,6 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
 
     // --- 3. CONSTRUCCIÓN DEL BODY FINAL ---
     const finalPostBody = {
-      productoId: etiqueta.id || 0, // ID de la etiqueta (4389 para Destiny)
       lote: String(etiqueta.orden), // El lote es el campo "orden" (28596 para Destiny)
       cliente: clienteInput,
       validadores: user?.name || "USUARIO DESCONOCIDO",
