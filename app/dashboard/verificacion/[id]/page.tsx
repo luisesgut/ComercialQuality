@@ -253,13 +253,23 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
     }, [verificationId]);
 
+    const openExternalDocument = (url: string, documentName: string) => {
+        const win = window.open(url, "_blank", "noopener,noreferrer");
+        if (!win) {
+            alert(`No se pudo abrir ${documentName}. Verifique que el navegador permita ventanas emergentes.`);
+        }
+    };
+
     const handleOpenPrintCard = () => {
         if (!dashboardData?.printCard) return;
         const printCardUrl = `${API_BASE_URL}/Printcard/${encodeURIComponent(dashboardData.printCard)}`;
-        const win = window.open(printCardUrl, "_blank", "noopener,noreferrer");
-        if (!win) {
-            alert("No se pudo abrir el PrintCard. Verifique que el navegador permita ventanas emergentes.");
-        }
+        openExternalDocument(printCardUrl, "el PrintCard");
+    };
+
+    const handleOpenFichaTecnica = () => {
+        if (!dashboardData?.printCard) return;
+        const fichaTecnicaUrl = `${API_BASE_URL}/Printcard/ficha/${encodeURIComponent(dashboardData.printCard)}`;
+        openExternalDocument(fichaTecnicaUrl, "la Ficha Tecnica");
     };
 
     const fetchTarimasActivas = useCallback(async () => {
@@ -1347,15 +1357,26 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
 
                         {dashboardData.printCard && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full mt-1 gap-2"
-                                onClick={handleOpenPrintCard}
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                                Ver PrintCard · {dashboardData.printCard}
-                            </Button>
+                            <div className="mt-1 space-y-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full gap-2"
+                                    onClick={handleOpenPrintCard}
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                    Ver PrintCard · {dashboardData.printCard}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full gap-2"
+                                    onClick={handleOpenFichaTecnica}
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                    Ver Ficha Tecnica · {dashboardData.printCard}
+                                </Button>
+                            </div>
                         )}
                     </CardContent>
                 </Card>
