@@ -30,7 +30,7 @@ const DEMO_USERS: Array<User & { password: string }> = [
     id: "2469",
     name: "DIAZ BARAJAS GEMA KAREN",
     password: "2469",
-    role: "Verificador",
+    role: "Administrador",
   },
   {
     id: "3174",
@@ -66,7 +66,7 @@ const DEMO_USERS: Array<User & { password: string }> = [
     id: "533",
     name: "ORTEGA MARTINEZ ERIKA LUCIA",
     password: "533",
-    role: "Verificador",
+    role: "Administrador",
   },
   {
     id: "3206",

@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useVerifications } from "@/lib/verification-context"
-import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers, PlayCircle } from "lucide-react"
+import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers, PlayCircle, ShieldAlert } from "lucide-react"
 
 export function DashboardMenu() {
   const router = useRouter()
+  const { user } = useAuth()
   const { getPendingVerifications, verifications, isLoading, error, fetchVerifications } = useVerifications()
   const [todayLabel, setTodayLabel] = useState("")
 
@@ -179,6 +181,27 @@ export function DashboardMenu() {
             </Button>
           </CardContent>
         </Card>
+
+        {user?.role === "Administrador" && (
+          <Card
+            className="border-0 shadow-lg bg-card hover:shadow-xl transition-all cursor-pointer group"
+            onClick={() => router.push("/dashboard/catalogo-defectos")}
+          >
+            <CardHeader className="pb-4">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 transition-colors group-hover:bg-primary/20">
+                <ShieldAlert className="h-7 w-7 text-primary" />
+              </div>
+              <CardTitle className="text-xl text-card-foreground">Administrar Defectos</CardTitle>
+              <CardDescription>Alta, consulta y baja del catálogo de defectos para verificaciones</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" className="w-full bg-transparent" size="lg">
+                Abrir módulo
+                <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )
