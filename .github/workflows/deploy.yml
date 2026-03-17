@@ -13,14 +13,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Dependencies
-        # Usamos npx para asegurar que pnpm se ejecute incluso si no está en el PATH
+        # Aseguramos la instalación de pnpm y sus dependencias en el servidor de León
         run: |
           npm install -g pnpm
           npx pnpm install
         shell: powershell
 
       - name: Build Project
-        # npx asegura que encuentre el ejecutable de pnpm para el build
+        # Generamos la carpeta .next optimizada
         run: npx pnpm run build
         shell: powershell
 
@@ -29,8 +29,8 @@ jobs:
           $sourcePath = "."
           $destinationPath = "C:\inetpub\wwwroot\NextQuality"
 
-          # Sincronizamos archivos fuente y el build (.next) hacia la carpeta del IIS
-          # Excluimos node_modules porque se gestionan en el paso anterior y .env por seguridad
+          # Sincronizamos archivos fuente y build hacia el IIS
+          # Excluimos node_modules y .git para mantener la carpeta limpia
           robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env
 
           if ($lastexitcode -lt 8) { exit 0 } else { exit $lastexitcode }
@@ -38,6 +38,12 @@ jobs:
 
       - name: Restart App with PM2
         run: |
-          # Usamos la ruta directa al binario de next para evitar fallos de permisos
-          pm2 restart "comercial-quality" || pm2 start node_modules/next/dist/bin/next --name "comercial-quality" -- start
+          # Lógica compatible con PowerShell para reiniciar o iniciar la app
+          try {
+              Write-Host "Intentando reiniciar la app en PM2..."
+              pm2 restart "comercial-quality"
+          } catch {
+              Write-Host "La app no existe en PM2, iniciando por primera vez..."
+              pm2 start node_modules/next/dist/bin/next --name "comercial-quality" -- start
+          }
         shell: powershell
