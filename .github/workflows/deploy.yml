@@ -2,7 +2,7 @@ name: Deploy Next.js ComercialQuality
 
 on:
   push:
-    branches: [ "master" ] # Asegúrate de que tu rama principal se llame master
+    branches: [ "main" ] 
 
 jobs:
   deploy:
