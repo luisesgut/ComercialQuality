@@ -12,32 +12,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install Dependencies
-        # pnpm es más rápido para instalar tus hooks, lib y demás
-        run: pnpm install
+        # Usamos npx para asegurar que pnpm se ejecute incluso si no está en el PATH
+        run: |
+          npm install -g pnpm
+          npx pnpm install
+        shell: powershell
 
       - name: Build Project
-        # Esto genera la carpeta .next que vimos en tu IIS
-        run: pnpm run build
+        # npx asegura que encuentre el ejecutable de pnpm para el build
+        run: npx pnpm run build
+        shell: powershell
 
       - name: Deploy to IIS Folder
         run: |
           $sourcePath = "."
           $destinationPath = "C:\inetpub\wwwroot\NextQuality"
 
-          # Sincronizamos todo excepto lo pesado (node_modules) y lo sensible (.env)
-          # El parámetro /MIR hace que el servidor sea un espejo de tu Mac
+          # Sincronizamos archivos fuente y el build (.next) hacia la carpeta del IIS
+          # Excluimos node_modules porque se gestionan en el paso anterior y .env por seguridad
           robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env
 
-          # Robocopy devuelve códigos menores a 8 cuando todo sale bien
           if ($lastexitcode -lt 8) { exit 0 } else { exit $lastexitcode }
         shell: powershell
 
       - name: Restart App with PM2
         run: |
-          # Avisamos a PM2 que refresque la app con el nuevo build
+          # Usamos la ruta directa al binario de next para evitar fallos de permisos
           pm2 restart "comercial-quality" || pm2 start node_modules/next/dist/bin/next --name "comercial-quality" -- start
         shell: powershell
