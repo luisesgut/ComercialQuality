@@ -24,6 +24,14 @@ import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCi
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
 
+const TIPO_BOLSA_OPTIONS = [
+  "Sello lateral",
+  "Sello lateral con zipper",
+  "Wicket",
+  "Wicket con zipper",
+  "Pouch",
+]
+
 function StepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 }) {
   const steps = [
     { number: 1, label: "Búsqueda" },
@@ -125,6 +133,15 @@ export function NewVerificationForm() {
       setTipoBolsaInput(consolidatedData.tipoEmpaque);
     }
   }, [consolidatedData?.tipoEmpaque]);
+
+  const tipoBolsaOptions = Array.from(
+    new Set(
+      [
+        consolidatedData?.tipoEmpaque?.trim(),
+        ...TIPO_BOLSA_OPTIONS,
+      ].filter((option): option is string => Boolean(option)),
+    ),
+  );
 
   // Auto-rellenar piezasPorCaja según modo
   useEffect(() => {
@@ -611,21 +628,22 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
           )}
           <div className="space-y-2">
             <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
-            {mode === "destiny" && consolidatedData?.tipoEmpaque ? (
-              <Input id="tipoBolsa" value={tipoBolsaInput} readOnly disabled={isSubmitting} className="bg-muted cursor-default" />
-            ) : (
-              <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
-                <SelectTrigger className="w-full h-12">
-                  <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Sello lateral">Sello lateral</SelectItem>
-                  <SelectItem value="Sello lateral con zipper">Sello lateral con zipper</SelectItem>
-                  <SelectItem value="Wicket">Wicket</SelectItem>
-                  <SelectItem value="Wicket con zipper">Wicket con zipper</SelectItem>
-                  <SelectItem value="Pouch">Pouch</SelectItem>
-                </SelectContent>
-              </Select>
+            <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
+              <SelectTrigger className="w-full h-12">
+                <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
+              </SelectTrigger>
+              <SelectContent>
+                {tipoBolsaOptions.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {mode === "destiny" && consolidatedData?.tipoEmpaque && (
+              <p className="text-xs text-muted-foreground">
+                Valor sugerido por SAP: {consolidatedData.tipoEmpaque}
+              </p>
             )}
           </div>
 
