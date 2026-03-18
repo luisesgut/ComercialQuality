@@ -7,14 +7,19 @@ import * as signalR from "@microsoft/signalr";
 
 // Asegúrate de importar tus interfaces y componentes de UI
 import { DashboardData } from '@/app/types/verification-types'; 
+import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { VerificationProvider } from '@/lib/verification-context';
+import { DashboardLayout } from '@/components/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, Camera, Trash2, ExternalLink } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, Camera, Trash2, ExternalLink, ChevronsUpDown } from 'lucide-react';
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -150,8 +155,30 @@ interface TarimaEliminadaEvent {
     NumeroTarima?: number;
 }
 
+const CLOSE_TARIMA_STATUS_OPTIONS = [
+    { value: "Aprobada", label: "Sin Hallazgos" },
+    { value: "Con hallazgos", label: "Con Hallazgos" },
+    { value: "Rechazada", label: "Rechazada" },
+] as const;
+
+const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
+    const normalizedStatus = (status || "").trim().toLowerCase();
+    if (!normalizedStatus) return "Sin estatus";
+    if (normalizedStatus === "aprobada" || normalizedStatus === "sin hallazgos") return "Sin Hallazgos";
+    if (
+        normalizedStatus === "con hallazgos" ||
+        normalizedStatus === "con defectos"
+    ) {
+        return "Con Hallazgos";
+    }
+    if (normalizedStatus === "rechazada") return "Rechazada";
+    return status || "Sin estatus";
+};
+
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
+    const { user } = useAuth();
+    const isAdminUser = user?.role?.trim().toLowerCase() === "administrador";
     const qtyUomVideoRef = useRef<HTMLVideoElement | null>(null);
     const qtyUomStreamRef = useRef<MediaStream | null>(null);
     const qtyUomRafRef = useRef<number | null>(null);
@@ -186,6 +213,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [catalogoDefectos, setCatalogoDefectos] = useState<DefectoCatalogItem[]>([]);
     const [isCatalogoDefectosLoading, setIsCatalogoDefectosLoading] = useState(false);
     const [catalogoDefectosError, setCatalogoDefectosError] = useState<string | null>(null);
+    const [openDefectoIndex, setOpenDefectoIndex] = useState<number | null>(null);
     const [defectosCajaInput, setDefectosCajaInput] = useState<DefectoCajaInputItem[]>([
         { defectoId: null, cantidad: "", comentario: "" },
     ]);
@@ -383,18 +411,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     }, [selectedTarima?.tarimaId, fetchTarimaActivaDetalle]);
 
     useEffect(() => {
-        try {
-            const storedUser = localStorage.getItem("auth_user");
-            if (storedUser) {
-                const parsed = JSON.parse(storedUser);
-                if (parsed?.name) {
-                    setCurrentUserName(parsed.name);
-                }
-            }
-        } catch {
-            // ignore parse errors
+        if (user?.name) {
+            setCurrentUserName(user.name);
         }
-    }, []);
+    }, [user]);
 
     useEffect(() => {
         setRegisterError(null);
@@ -1014,6 +1034,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
             setPiezasAuditadasInput("");
             setTieneDefectosInput(false);
+            setOpenDefectoIndex(null);
             setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
             fetchTarimasActivas();
             fetchTarimasTerminadas();
@@ -1032,7 +1053,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
     const handleEvidenceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files ? Array.from(event.target.files) : [];
-        setSelectedEvidenceFiles(files);
+        if (!files.length) return;
+        setSelectedEvidenceFiles((prev) => {
+            const existingKeys = new Set(prev.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
+            const nextFiles = files.filter(
+                (file) => !existingKeys.has(`${file.name}-${file.size}-${file.lastModified}`),
+            );
+            return [...prev, ...nextFiles];
+        });
+        event.target.value = "";
+    };
+
+    const handleRemoveEvidenceFile = (fileIndex: number) => {
+        setSelectedEvidenceFiles((prev) => prev.filter((_, index) => index !== fileIndex));
     };
 
     const handleEvidenceSubmit = async (event: React.FormEvent) => {
@@ -1157,6 +1190,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const handleReopenTarima = async (tarima: TarimaTerminada) => {
         setReopenTarimaError(null);
         setReopenTarimaSuccess(null);
+
+        if (!isAdminUser) {
+            setReopenTarimaError("Solo los administradores pueden reabrir una tarima.");
+            return;
+        }
 
         const shouldContinue = window.confirm(`Se reabrira la tarima #${tarima.numeroTarima}. Desea continuar?`);
         if (!shouldContinue) return;
@@ -1341,7 +1379,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </div>
 
                         {/* Datos de la orden */}
-                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border">
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border md:grid-cols-4">
                             <div>
                                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Orden</p>
                                 <p className="text-sm font-bold mt-0.5">{dashboardData.loteOrden}</p>
@@ -1353,6 +1391,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div>
                                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Tarimas est.</p>
                                 <p className="text-sm font-bold mt-0.5">{dashboardData.tarimasTotalesEstimadas}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Usuario</p>
+                                <p className="text-sm font-bold mt-0.5 break-words">{currentUserName}</p>
                             </div>
                         </div>
 
@@ -1827,6 +1869,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         const nextValue = !tieneDefectosInput;
                                         setTieneDefectosInput(nextValue);
                                         if (!nextValue) {
+                                            setOpenDefectoIndex(null);
                                             setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
                                         }
                                     }}
@@ -1877,27 +1920,64 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                             <div className="sm:col-span-2 space-y-1">
                                                                 <Label className="text-sm">Defecto</Label>
-                                                                <Select
-                                                                    value={item.defectoId ? String(item.defectoId) : ""}
-                                                                    onValueChange={(value) => updateDefectoItem(index, { defectoId: Number(value) })}
-                                                                    disabled={isRegisteringScan}
+                                                                <Popover
+                                                                    open={openDefectoIndex === index}
+                                                                    onOpenChange={(open) => setOpenDefectoIndex(open ? index : null)}
                                                                 >
-                                                                    <SelectTrigger className="h-11">
-                                                                        <SelectValue placeholder="Seleccione un defecto" />
-                                                                    </SelectTrigger>
-                                                                    <SelectContent className="max-h-80">
-                                                                        {Object.entries(defectosPorFamilia).map(([familia, defectos]) => (
-                                                                            <SelectGroup key={familia}>
-                                                                                <SelectLabel>{familia}</SelectLabel>
-                                                                                {defectos.map((defecto) => (
-                                                                                    <SelectItem key={defecto.id} value={String(defecto.id)}>
-                                                                                        {defecto.detalle}
-                                                                                    </SelectItem>
+                                                                    <PopoverTrigger asChild>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            role="combobox"
+                                                                            aria-expanded={openDefectoIndex === index}
+                                                                            className="h-11 w-full justify-between font-normal"
+                                                                            disabled={isRegisteringScan}
+                                                                        >
+                                                                            <span className="truncate">
+                                                                                {item.defectoId
+                                                                                    ? (() => {
+                                                                                        const defectoSeleccionado = catalogoDefectos.find(
+                                                                                            (defecto) => defecto.id === item.defectoId,
+                                                                                        );
+                                                                                        return defectoSeleccionado
+                                                                                            ? `${defectoSeleccionado.detalle} · ${defectoSeleccionado.familia}`
+                                                                                            : "Seleccione un defecto";
+                                                                                    })()
+                                                                                    : "Buscar y seleccionar defecto"}
+                                                                            </span>
+                                                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                                        </Button>
+                                                                    </PopoverTrigger>
+                                                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                                                        <Command className="**:data-[slot=command-input-wrapper]:h-11 [&_[cmdk-input]]:h-11 [&_[cmdk-item]]:py-3">
+                                                                            <CommandInput placeholder="Buscar por familia o defecto..." />
+                                                                            <CommandList className="max-h-72">
+                                                                                <CommandEmpty>No se encontraron defectos.</CommandEmpty>
+                                                                                {Object.entries(defectosPorFamilia).map(([familia, defectos]) => (
+                                                                                    <CommandGroup key={familia} heading={familia}>
+                                                                                        {defectos.map((defecto) => (
+                                                                                            <CommandItem
+                                                                                                key={defecto.id}
+                                                                                                value={`${defecto.detalle} ${defecto.familia}`}
+                                                                                                onSelect={() => {
+                                                                                                    updateDefectoItem(index, { defectoId: defecto.id });
+                                                                                                    setOpenDefectoIndex(null);
+                                                                                                }}
+                                                                                            >
+                                                                                                <Check
+                                                                                                    className={`mr-2 h-4 w-4 ${
+                                                                                                        item.defectoId === defecto.id ? "opacity-100" : "opacity-0"
+                                                                                                    }`}
+                                                                                                />
+                                                                                                <span className="flex-1">{defecto.detalle}</span>
+                                                                                                <span className="text-xs text-muted-foreground">{defecto.familia}</span>
+                                                                                            </CommandItem>
+                                                                                        ))}
+                                                                                    </CommandGroup>
                                                                                 ))}
-                                                                            </SelectGroup>
-                                                                        ))}
-                                                                    </SelectContent>
-                                                                </Select>
+                                                                            </CommandList>
+                                                                        </Command>
+                                                                    </PopoverContent>
+                                                                </Popover>
                                                             </div>
                                                             <div className="space-y-1">
                                                                 <Label className="text-sm">Cantidad afectada</Label>
@@ -2039,6 +2119,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             {reopenTarimaSuccess}
                         </div>
                     )}
+                    {!isAdminUser && tarimasTerminadas.length > 0 && (
+                        <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-100 p-3 rounded-lg">
+                            <AlertCircle className="w-4 h-4" />
+                            Solo los administradores pueden reabrir tarimas.
+                        </div>
+                    )}
                     {!isTarimasTerminadasLoading && !tarimasTerminadasError && tarimasTerminadas.length === 0 && (
                         <p className="text-sm text-muted-foreground py-2">Sin tarimas terminadas todavía.</p>
                     )}
@@ -2047,9 +2133,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             {tarimasTerminadas.map((tarima) => {
                                 const defectCount = tarima.cajas.filter((c) => c.tieneDefectos).length;
                                 const hasErrores = defectCount > 0;
-                                const estatusCierre = (tarima.estatusCierre || "Sin estatus").trim();
+                                const estatusCierre = getCloseTarimaStatusLabel(tarima.estatusCierre);
                                 const estatusCierreClass =
-                                    estatusCierre.toLowerCase() === "aprobada"
+                                    estatusCierre.toLowerCase() === "sin hallazgos"
                                         ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
                                         : estatusCierre.toLowerCase() === "rechazada"
                                             ? "bg-destructive/10 text-destructive border border-destructive/20"
@@ -2118,6 +2204,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     className="h-8"
                                                     onClick={() => handleReopenTarima(tarima)}
                                                     disabled={reopeningTarimaId === tarima.tarimaId}
+                                                    title={
+                                                        isAdminUser
+                                                            ? "Reabrir tarima"
+                                                            : "Solo los administradores pueden reabrir tarimas"
+                                                    }
                                                 >
                                                     {reopeningTarimaId === tarima.tarimaId ? (
                                                         <>
@@ -2354,9 +2445,37 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     disabled={isEvidenceUploading}
                                 />
                                 {selectedEvidenceFiles.length > 0 && (
-                                    <p className="text-xs text-muted-foreground">
-                                        {selectedEvidenceFiles.length} archivo(s) seleccionado(s)
-                                    </p>
+                                    <div className="space-y-2">
+                                        <p className="text-xs text-muted-foreground">
+                                            {selectedEvidenceFiles.length} archivo(s) seleccionado(s). Puede seguir agregando más fotos antes de subir.
+                                        </p>
+                                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                                            {selectedEvidenceFiles.map((file, index) => (
+                                                <div
+                                                    key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                                                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-medium">{file.name}</p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {(file.size / (1024 * 1024)).toFixed(2)} MB
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 shrink-0"
+                                                        onClick={() => handleRemoveEvidenceFile(index)}
+                                                        disabled={isEvidenceUploading}
+                                                        title="Quitar foto"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 
@@ -2439,9 +2558,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         <SelectValue placeholder="Seleccione el estatus de cierre" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="Aprobada">Aprobada</SelectItem>
-                                        <SelectItem value="Con hallazgos">Con hallazgos</SelectItem>
-                                        <SelectItem value="Rechazada">Rechazada</SelectItem>
+                                        {CLOSE_TARIMA_STATUS_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -2681,5 +2802,13 @@ export default function VerificationDetailPage({ params }: { params: Promise<{ i
     // Nota: El uso de 'use(params)' es correcto si esta página es un Server Component que debe leer una promesa.
     // Si tienes problemas, cambia 'params: Promise<{ id: string }>' por 'params: { id: string }' y elimina el use().
     const resolvedParams = use(params)
-    return <VerificationDetail verificationId={resolvedParams.id} />
+    return (
+        <AuthProvider>
+            <VerificationProvider>
+                <DashboardLayout>
+                    <VerificationDetail verificationId={resolvedParams.id} />
+                </DashboardLayout>
+            </VerificationProvider>
+        </AuthProvider>
+    )
 }
