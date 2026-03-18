@@ -1,13 +1,10 @@
 name: Deploy Next.js ComercialQuality
-
 on:
   push:
-    branches: [ "main" ] # Verifica si tu rama es main o master kkk
-
+    branches: [ "main" ]
 jobs:
   deploy:
     runs-on: self-hosted
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,12 +29,11 @@ jobs:
 
       - name: Restart App with PM2
         run: |
-          # Usamos npx para que el Runner encuentre PM2 sí o sí
-          try {
-              Write-Host "Intentando reiniciar la app con npx pm2..."
-              npx pm2 restart "comercial-quality"
-          } catch {
-              Write-Host "La app no existe, iniciando con npx pm2 por primera vez..."
-              npx pm2 start node_modules/next/dist/bin/next --name "comercial-quality" -- start
-          }
+          $ErrorActionPreference = "SilentlyContinue"
+          pm2 delete "comercial-quality" | Out-Null
+          $ErrorActionPreference = "Stop"
+
+          cd "C:\inetpub\wwwroot\NextQuality"
+          pm2 start ecosystem.config.js
+          pm2 save
         shell: powershell
