@@ -30,7 +30,7 @@ jobs:
       - name: Restart App with PM2
         run: |
           $ErrorActionPreference = "SilentlyContinue"
-          npx pm2 delete "comercial-quality" | Out-Null
+          npx pm2 delete "calidad-comercial" | Out-Null
           $ErrorActionPreference = "Stop"
 
           cd "C:\inetpub\wwwroot\NextQuality"
