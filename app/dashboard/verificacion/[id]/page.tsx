@@ -23,6 +23,7 @@ import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Lay
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
+const API_ORIGIN = new URL(API_BASE_URL).origin;
 
 interface VerificationDetailProps {
     verificationId: string;
@@ -52,6 +53,7 @@ interface TarimaActivaCaja {
     comentarios: string | null;
     horaEscaneo: string;
     defectos: TarimaActivaDefecto[];
+    fotos?: string[];
 }
 
 interface TarimaActivaDetalle {
@@ -68,6 +70,26 @@ interface TarimaActivaDetalle {
     cajas: TarimaActivaCaja[];
 }
 
+interface RegistrarEscaneoResponse {
+    requiereConfirmacion?: boolean;
+    detalleIdDuplicado?: number;
+    mensajeConfirmacion?: string;
+    ultimoDetalleId?: number;
+    mensajeEstado?: string;
+    porcentajeAvance?: number;
+    numeroCaja?: number;
+}
+
+interface ReescanearCajaResponse {
+    detalleId: number;
+    identificador: string;
+    cantidad: number;
+    piezasAuditadas: number;
+    tieneDefectos: boolean;
+    comentarios: string | null;
+    horaEscaneo: string;
+}
+
 interface TarimaTerminadaCaja {
     detalleId: number;
     identificador: string;
@@ -77,6 +99,7 @@ interface TarimaTerminadaCaja {
     comentarios: string | null;
     horaEscaneo: string;
     defectos?: TarimaTerminadaDefecto[];
+    fotos?: string[];
 }
 
 interface TarimaTerminadaDefecto {
@@ -85,6 +108,28 @@ interface TarimaTerminadaDefecto {
     nombre?: string;
     cantidad?: number;
     comentario?: string | null;
+}
+
+interface EvidenciaCajaItem {
+    evidenciaId: number;
+    url: string;
+}
+
+interface EvidenciaCajaApiItem {
+    evidenciaId?: number;
+    EvidenciaId?: number;
+    foto?: string | null;
+    Foto?: string | null;
+    ruta?: string | null;
+    Ruta?: string | null;
+    url?: string | null;
+    Url?: string | null;
+    archivoUrl?: string | null;
+    ArchivoUrl?: string | null;
+    fotoUrl?: string | null;
+    FotoUrl?: string | null;
+    path?: string | null;
+    Path?: string | null;
 }
 
 interface TarimaTerminada {
@@ -229,8 +274,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [evidenceTargetId, setEvidenceTargetId] = useState<number | null>(null);
     const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([]);
     const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
+    const [deletingEvidenceId, setDeletingEvidenceId] = useState<number | null>(null);
     const [evidenceError, setEvidenceError] = useState<string | null>(null);
     const [evidenceSuccess, setEvidenceSuccess] = useState<string | null>(null);
+    const [evidenceByDetalleId, setEvidenceByDetalleId] = useState<Record<number, EvidenciaCajaItem[]>>({});
+    const [isEvidenceListLoadingByDetalleId, setIsEvidenceListLoadingByDetalleId] = useState<Record<number, boolean>>({});
     const [isCloseTarimaModalOpen, setIsCloseTarimaModalOpen] = useState(false);
     const [closeTarimaEstatusCierre, setCloseTarimaEstatusCierre] = useState("");
     const [closeTarimaAgregarComentario, setCloseTarimaAgregarComentario] = useState(false);
@@ -328,6 +376,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
             const data: TarimaTerminada[] = await response.json();
             setTarimasTerminadas(Array.isArray(data) ? data : []);
+            void hydrateEvidenceForCajas(
+                (Array.isArray(data) ? data : []).flatMap((tarima) => Array.isArray(tarima.cajas) ? tarima.cajas : [])
+            );
         } catch (err: any) {
             setTarimasTerminadasError(err.message || "Error de conexión al cargar tarimas terminadas.");
             setTarimasTerminadas([]);
@@ -346,6 +397,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
             const data: TarimaActivaDetalle = await response.json();
             setTarimaActivaDetalle(data);
+            void hydrateEvidenceForCajas(data.cajas ?? []);
         } catch (err: any) {
             setTarimaActivaDetalleError(err.message || "Error de conexión al cargar detalle de tarima.");
             setTarimaActivaDetalle(null);
@@ -550,7 +602,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     useEffect(() => {
         if (!verificationId) return;
 
-        const hubUrl = `${new URL(API_BASE_URL).origin}/verificacionHub`;
+        const hubUrl = `${API_ORIGIN}/verificacionHub`;
         const connection = new signalR.HubConnectionBuilder()
             .withUrl(hubUrl)
             .withAutomaticReconnect()
@@ -780,6 +832,297 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             ? tarimaActivaDetalle
             : null;
 
+    const resolveEvidenceUrl = (foto: string) => {
+        if (!foto) return "";
+        if (/^https?:\/\//i.test(foto)) return foto;
+        return `${API_ORIGIN}${foto.startsWith("/") ? foto : `/${foto}`}`;
+    };
+
+    const normalizeEvidenceItem = (item: EvidenciaCajaApiItem): EvidenciaCajaItem | null => {
+        const evidenciaId = Number(item.evidenciaId ?? item.EvidenciaId);
+        const rawUrl =
+            item.url ??
+            item.Url ??
+            item.archivoUrl ??
+            item.ArchivoUrl ??
+            item.fotoUrl ??
+            item.FotoUrl ??
+            item.foto ??
+            item.Foto ??
+            item.ruta ??
+            item.Ruta ??
+            item.path ??
+            item.Path;
+
+        if (!Number.isFinite(evidenciaId) || evidenciaId <= 0 || !rawUrl) return null;
+
+        return {
+            evidenciaId,
+            url: resolveEvidenceUrl(rawUrl),
+        };
+    };
+
+    function getCajaEvidencias(detalleId: number, fallbackFotos?: string[]) {
+        if (Object.prototype.hasOwnProperty.call(evidenceByDetalleId, detalleId)) {
+            return evidenceByDetalleId[detalleId] ?? [];
+        }
+
+        return (fallbackFotos ?? []).map((foto, index) => ({
+            evidenciaId: -(index + 1),
+            url: resolveEvidenceUrl(foto),
+        }));
+    }
+
+    function getCajaFallbackFotos(detalleId: number) {
+        const activeCaja = selectedTarimaDetalle?.cajas?.find((caja) => caja.detalleId === detalleId);
+        if (activeCaja?.fotos?.length) {
+            return activeCaja.fotos;
+        }
+
+        for (const tarima of tarimasTerminadas) {
+            const finishedCaja = tarima.cajas?.find((caja) => caja.detalleId === detalleId);
+            if (finishedCaja?.fotos?.length) {
+                return finishedCaja.fotos;
+            }
+        }
+
+        return undefined;
+    }
+
+    async function fetchCajaEvidencias(detalleId: number) {
+        if (!detalleId) return [];
+
+        setIsEvidenceListLoadingByDetalleId((prev) => ({ ...prev, [detalleId]: true }));
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/fotos-caja/${detalleId}`);
+            if (!response.ok) {
+                throw new Error(await parseApiError(response, `Error (${response.status}) al obtener fotos de la caja.`));
+            }
+
+            const data = await response.json();
+            const evidencias = Array.isArray(data)
+                ? data
+                    .map((item) => normalizeEvidenceItem(item as EvidenciaCajaApiItem))
+                    .filter((item): item is EvidenciaCajaItem => item !== null)
+                : [];
+
+            setEvidenceByDetalleId((prev) => ({ ...prev, [detalleId]: evidencias }));
+            return evidencias;
+        } finally {
+            setIsEvidenceListLoadingByDetalleId((prev) => ({ ...prev, [detalleId]: false }));
+        }
+    }
+
+    async function hydrateEvidenceForCajas(cajas: Array<{ detalleId: number }>) {
+        const detalleIds = Array.from(
+            new Set(
+                cajas
+                    .map((caja) => Number(caja.detalleId))
+                    .filter((detalleId) => Number.isFinite(detalleId) && detalleId > 0)
+            )
+        );
+
+        if (!detalleIds.length) return;
+
+        await Promise.all(
+            detalleIds.map(async (detalleId) => {
+                try {
+                    await fetchCajaEvidencias(detalleId);
+                } catch {
+                    // keep fallback fotos from tarima payload
+                }
+            })
+        );
+    }
+
+    async function parseApiError(response: Response, fallback: string) {
+        let detail = fallback;
+        try {
+            const errorText = await response.text();
+            if (errorText) {
+                try {
+                    const errorData = JSON.parse(errorText);
+                    detail = errorData.detail || errorData.message || errorData.error || detail;
+                } catch {
+                    detail = errorText;
+                }
+            }
+        } catch {
+            // ignore parse error
+        }
+        return detail;
+    }
+
+    const renderEvidenceGallery = (
+        detalleId: number,
+        fallbackFotos: string[] | undefined,
+        options?: { editable?: boolean; compact?: boolean; showManageButton?: boolean }
+    ) => {
+        const evidencias = getCajaEvidencias(detalleId, fallbackFotos);
+        const editable = options?.editable ?? false;
+        const compact = options?.compact ?? false;
+        const showManageButton = options?.showManageButton ?? editable;
+        const isLoadingEvidence = isEvidenceListLoadingByDetalleId[detalleId];
+
+        if (!evidencias.length && !isLoadingEvidence) return null;
+
+        return (
+            <div className={`mt-3 rounded-xl border ${compact ? "p-3" : "p-4"} bg-gradient-to-br from-slate-50 to-white`}>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Evidencia Visual</p>
+                        <p className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>
+                            {isLoadingEvidence ? "Cargando fotos..." : `${evidencias.length} foto(s) asociadas`}
+                        </p>
+                    </div>
+                    {showManageButton && (
+                        <Button
+                            type="button"
+                            size="sm"
+                            className="h-9 px-3"
+                            onClick={() => openEvidenceForCaja(detalleId)}
+                        >
+                            <Camera className="w-4 h-4 mr-1.5" />
+                            Gestionar
+                        </Button>
+                    )}
+                </div>
+
+                <div className={`grid gap-2 ${compact ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"}`}>
+                    {evidencias.map((foto, index) => (
+                        <div
+                            key={`${detalleId}-evidence-${foto.evidenciaId}-${index}`}
+                            className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm"
+                        >
+                            <img
+                                src={foto.url}
+                                alt={`Evidencia ${index + 1} de la caja ${detalleId}`}
+                                className={`w-full object-cover transition-transform duration-200 group-hover:scale-105 ${compact ? "h-24" : "h-32"}`}
+                            />
+                            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                <span className="text-[11px] font-medium text-white">Foto {index + 1}</span>
+                                <div className="flex items-center gap-1">
+                                    <a
+                                        href={foto.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-slate-900 transition hover:bg-white"
+                                        title="Abrir foto"
+                                    >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                    </a>
+                                    {editable && foto.evidenciaId > 0 && (
+                                        <button
+                                            type="button"
+                                            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-500/90 text-white transition hover:bg-red-500 disabled:opacity-60"
+                                            onClick={() => handleDeleteEvidence(detalleId, foto.evidenciaId)}
+                                            disabled={deletingEvidenceId === foto.evidenciaId}
+                                            title="Eliminar foto"
+                                        >
+                                            {deletingEvidenceId === foto.evidenciaId ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            )}
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    const normalizeTarimaEstado = (estado?: string | null) => (estado || "").trim().toLowerCase();
+    const isTarimaAbierta = (estado?: string | null) => {
+        const normalized = normalizeTarimaEstado(estado);
+        return normalized === "1" || normalized === "abierta" || normalized === "abierto";
+    };
+
+    const reopenTarimaIfNeeded = async (tarimaId: number) => {
+        let estadoActual = selectedTarimaDetalle?.tarimaId === tarimaId ? selectedTarimaDetalle.estado : null;
+
+        if (!estadoActual) {
+            const detailResponse = await fetch(`${API_BASE_URL}/Verificacion/tarima/${tarimaId}`);
+            if (!detailResponse.ok) {
+                throw new Error(await parseApiError(detailResponse, `Error (${detailResponse.status}) al validar la tarima.`));
+            }
+            const detailData: TarimaActivaDetalle = await detailResponse.json();
+            estadoActual = detailData.estado;
+            setTarimaActivaDetalle(detailData);
+        }
+
+        if (isTarimaAbierta(estadoActual)) return false;
+
+        const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir-tarima/${tarimaId}`, {
+            method: "PUT",
+        });
+        if (!reopenResponse.ok) {
+            throw new Error(await parseApiError(reopenResponse, `Error (${reopenResponse.status}) al reabrir tarima.`));
+        }
+
+        await Promise.all([
+            fetchTarimasActivas(),
+            fetchTarimasTerminadas(),
+            fetchDashboardData({ silent: true }),
+            fetchTarimaActivaDetalle(tarimaId),
+        ]);
+
+        return true;
+    };
+
+    const resetScanForm = () => {
+        setTrazabilidadInput("");
+        setConsecutivoManualInput("");
+        const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
+        setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
+        setPiezasAuditadasInput("");
+        setTieneDefectosInput(false);
+        setOpenDefectoIndex(null);
+        setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
+    };
+
+    const registerCajaDefectos = async ({
+        detalleId,
+        tarimaId,
+        numeroCaja,
+        defectosCapturados,
+    }: {
+        detalleId: number;
+        tarimaId: number;
+        numeroCaja: number;
+        defectosCapturados: DefectoCajaInputItem[];
+    }) => {
+        const defectosPayload = defectosCapturados.map((item) => ({
+            defectoId: Number(item.defectoId),
+            cantidad: Number(item.cantidad),
+            comentario: item.comentario.trim() || null,
+        }));
+
+        const defectosResponse = await fetch(`${API_BASE_URL}/Verificacion/registrar-defectos-caja`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                tarimaId,
+                verificacionId: verifiedIdNumber,
+                detalleId,
+                numeroCaja,
+                defectos: defectosPayload,
+            }),
+        });
+
+        if (!defectosResponse.ok) {
+            throw new Error(
+                await parseApiError(defectosResponse, `Error (${defectosResponse.status}) al registrar defectos de la caja.`)
+            );
+        }
+    };
+
     const handleCreateTarima = async () => {
         setCreateTarimaError(null);
         setCreateTarimaSuccess(null);
@@ -862,6 +1205,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setEvidenceSuccess(null);
         setSelectedEvidenceFiles([]);
         setIsEvidenceModalOpen(true);
+        void fetchCajaEvidencias(detalleId).catch((err: any) => {
+            setEvidenceError(err.message || "No se pudieron cargar las fotos de la caja.");
+        });
     };
 
     const handleRegisterScan = async (event: React.FormEvent) => {
@@ -948,6 +1294,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setIsRegisteringScan(true);
 
         try {
+            const tarimaFueReabierta = await reopenTarimaIfNeeded(selectedTarima.tarimaId);
             const response = await fetch(`${API_BASE_URL}/Verificacion/registrar-escaneo`, {
                 method: "POST",
                 headers: {
@@ -957,27 +1304,86 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             });
 
             if (!response.ok) {
-                let detail = `Error (${response.status}) al registrar caja.`;
-                try {
-                    const errorText = await response.text();
-                    if (errorText) {
-                        try {
-                            const errorData = JSON.parse(errorText);
-                            detail = errorData.detail || errorData.message || errorData.error || detail;
-                        } catch {
-                            detail = errorText;
-                        }
-                    }
-                } catch {
-                    // ignore parse error
-                }
-                throw new Error(detail);
+                throw new Error(await parseApiError(response, `Error (${response.status}) al registrar caja.`));
             }
 
-            const data = await response.json();
+            const data: RegistrarEscaneoResponse = await response.json();
+
+            if (data?.requiereConfirmacion) {
+                const detalleIdDuplicado = Number(data.detalleIdDuplicado);
+                if (!Number.isFinite(detalleIdDuplicado) || detalleIdDuplicado <= 0) {
+                    throw new Error("La API indico duplicado, pero no regreso un detalleIdDuplicado valido.");
+                }
+
+                const shouldRescan = window.confirm(
+                    data.mensajeConfirmacion || "La caja ya fue registrada. Deseas reescanearla?"
+                );
+                if (!shouldRescan) {
+                    if (tarimaFueReabierta) {
+                        setRegisterStatusMessage("Tarima reabierta. Reescaneo cancelado por el operador.");
+                    }
+                    return;
+                }
+
+                const reescanResponse = await fetch(
+                    `${API_BASE_URL}/Verificacion/reescanear-caja/${detalleIdDuplicado}`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(payload),
+                    }
+                );
+                if (!reescanResponse.ok) {
+                    throw new Error(
+                        await parseApiError(reescanResponse, `Error (${reescanResponse.status}) al reescanear la caja.`)
+                    );
+                }
+
+                const reescanData: ReescanearCajaResponse = await reescanResponse.json();
+                setLastDetalleId(Number(reescanData.detalleId));
+
+                if (tieneDefectosInput) {
+                    const matchedCaja = selectedTarimaDetalle?.cajas.find((caja) => caja.detalleId === reescanData.detalleId);
+                    const numeroCajaReescaneada =
+                        Number(
+                            matchedCaja?.identificador?.match(/#\s*(\d+)/)?.[1] ??
+                            reescanData.identificador?.match(/#\s*(\d+)/)?.[1]
+                        ) || 0;
+
+                    await registerCajaDefectos({
+                        detalleId: reescanData.detalleId,
+                        tarimaId: selectedTarima.tarimaId,
+                        numeroCaja: numeroCajaReescaneada,
+                        defectosCapturados,
+                    });
+                    fetchDefectosResumen();
+                }
+
+                setRegisterSuccess("Caja reescaneada correctamente.");
+                setRegisterStatusMessage(
+                    tarimaFueReabierta
+                        ? `Tarima reabierta y ${reescanData.identificador} actualizada correctamente.`
+                        : `${reescanData.identificador} actualizada correctamente.`
+                );
+                resetScanForm();
+                fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+
+                if (tieneDefectosInput) {
+                    setEvidenceTargetId(Number(reescanData.detalleId));
+                    setIsEvidenceModalOpen(true);
+                }
+                return;
+            }
+
             setRegisterSuccess("Caja registrada correctamente.");
             if (data?.mensajeEstado) {
-                setRegisterStatusMessage(data.mensajeEstado);
+                setRegisterStatusMessage(
+                    tarimaFueReabierta ? `Tarima reabierta. ${data.mensajeEstado}` : data.mensajeEstado
+                );
+            } else if (tarimaFueReabierta) {
+                setRegisterStatusMessage("Tarima reabierta y caja registrada correctamente.");
             }
             if (data?.ultimoDetalleId) {
                 setLastDetalleId(Number(data.ultimoDetalleId));
@@ -986,62 +1392,35 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
 
             const numeroCaja = Number(data?.numeroCaja ?? selectedTarima.cajasLlevamos + 1);
-            if (tieneDefectosInput) {
-                const defectosPayload = defectosCapturados.map((item) => ({
-                    defectoId: Number(item.defectoId),
-                    cantidad: Number(item.cantidad),
-                    comentario: item.comentario.trim() || null,
-                }));
-                const defectosResponse = await fetch(`${API_BASE_URL}/Verificacion/registrar-defectos-caja`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                   body: JSON.stringify({
-                     tarimaId: selectedTarima.tarimaId,
-                     verificacionId: verifiedIdNumber,
-                    detalleId: data.ultimoDetalleId, 
+            if (tieneDefectosInput && data?.ultimoDetalleId) {
+                await registerCajaDefectos({
+                    detalleId: Number(data.ultimoDetalleId),
+                    tarimaId: selectedTarima.tarimaId,
                     numeroCaja,
-                    defectos: defectosPayload,
-}),
+                    defectosCapturados,
                 });
-                if (!defectosResponse.ok) {
-                    let detail = `Error (${defectosResponse.status}) al registrar defectos de la caja.`;
-                    try {
-                        const errorText = await defectosResponse.text();
-                        if (errorText) {
-                            try {
-                                const errorData = JSON.parse(errorText);
-                                detail = errorData.detail || errorData.message || errorData.error || detail;
-                            } catch {
-                                detail = errorText;
-                            }
-                        }
-                    } catch {
-                        // ignore parse error
-                    }
-                    throw new Error(detail);
-                }
                 fetchDefectosResumen();
-                setRegisterStatusMessage(`Caja #${numeroCaja} escaneada y defectos registrados.`);
+                setRegisterStatusMessage(
+                    tarimaFueReabierta
+                        ? `Tarima reabierta. Caja #${numeroCaja} escaneada y defectos registrados.`
+                        : `Caja #${numeroCaja} escaneada y defectos registrados.`
+                );
             } else {
-                setRegisterStatusMessage(`Caja #${numeroCaja} escaneada correctamente.`);
+                setRegisterStatusMessage(
+                    tarimaFueReabierta
+                        ? `Tarima reabierta. Caja #${numeroCaja} escaneada correctamente.`
+                        : `Caja #${numeroCaja} escaneada correctamente.`
+                );
             }
 
-            setTrazabilidadInput("");
-            setConsecutivoManualInput("");
-            const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
-            setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
-            setPiezasAuditadasInput("");
-            setTieneDefectosInput(false);
-            setOpenDefectoIndex(null);
-            setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
+            resetScanForm();
             fetchTarimasActivas();
             fetchTarimasTerminadas();
             fetchTarimaActivaDetalle(selectedTarima.tarimaId);
             fetchDashboardData();
 
             if (tieneDefectosInput && data?.ultimoDetalleId) {
+                setEvidenceTargetId(null);
                 setIsEvidenceModalOpen(true);
             }
         } catch (err: any) {
@@ -1088,40 +1467,57 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
         try {
             const formData = new FormData();
-            formData.append("VerificacionId", String(verifiedIdNumber));
-            formData.append("DetalleId", String(activeDetalleId));
             selectedEvidenceFiles.forEach((file) => formData.append("Fotos", file));
 
-            const response = await fetch(`${API_BASE_URL}/Verificacion/subir-evidencia`, {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/fotos-caja/${activeDetalleId}`, {
                 method: "POST",
                 body: formData,
             });
 
             if (!response.ok) {
-                let detail = `Error (${response.status}) al subir evidencia.`;
-                try {
-                    const errorText = await response.text();
-                    if (errorText) {
-                        try {
-                            const errorData = JSON.parse(errorText);
-                            detail = errorData.detail || errorData.message || detail;
-                        } catch {
-                            detail = errorText;
-                        }
-                    }
-                } catch {
-                    // ignore parse error
-                }
-                throw new Error(detail);
+                throw new Error(await parseApiError(response, `Error (${response.status}) al subir evidencia.`));
             }
 
             setEvidenceSuccess("Evidencia subida correctamente.");
             setSelectedEvidenceFiles([]);
-            setTimeout(() => { setIsEvidenceModalOpen(false); setEvidenceTargetId(null); }, 600);
+            await fetchCajaEvidencias(activeDetalleId);
+            if (selectedTarima) {
+                fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+            }
+            fetchTarimasTerminadas();
         } catch (err: any) {
             setEvidenceError(err.message || "Error de conexión al subir la evidencia.");
         } finally {
             setIsEvidenceUploading(false);
+        }
+    };
+
+    const handleDeleteEvidence = async (detalleId: number, evidenciaId: number) => {
+        setEvidenceError(null);
+        setEvidenceSuccess(null);
+        setDeletingEvidenceId(evidenciaId);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/fotos-caja/${evidenciaId}`, {
+                method: "DELETE",
+            });
+            if (!response.ok) {
+                throw new Error(await parseApiError(response, `Error (${response.status}) al eliminar la foto.`));
+            }
+
+            setEvidenceByDetalleId((prev) => ({
+                ...prev,
+                [detalleId]: (prev[detalleId] ?? []).filter((item) => item.evidenciaId !== evidenciaId),
+            }));
+            setEvidenceSuccess("Foto eliminada correctamente.");
+            if (selectedTarima) {
+                fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+            }
+            fetchTarimasTerminadas();
+        } catch (err: any) {
+            setEvidenceError(err.message || "Error de conexiÃ³n al eliminar la foto.");
+        } finally {
+            setDeletingEvidenceId(null);
         }
     };
 
@@ -1688,6 +2084,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 )}
                                                 <button
                                                     type="button"
+                                                    onClick={() => openEvidenceForCaja(caja.detalleId)}
+                                                    className="flex items-center gap-1 text-xs text-primary hover:text-primary px-2 py-1 rounded hover:bg-primary/10"
+                                                    title="Gestionar fotos"
+                                                >
+                                                    <Camera className="w-3.5 h-3.5" />
+                                                    Fotos
+                                                </button>
+                                                <button
+                                                    type="button"
                                                     onClick={() => handleDeleteCajaTarimaActiva(caja.detalleId, selectedTarima.tarimaId)}
                                                     disabled={deletingCajaId === caja.detalleId}
                                                     className="flex items-center gap-1 text-xs text-destructive hover:text-destructive px-2 py-1 rounded hover:bg-destructive/10 disabled:opacity-60"
@@ -1716,6 +2121,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 </div>
                                             </details>
                                         )}
+                                        {renderEvidenceGallery(caja.detalleId, caja.fotos, { editable: true, showManageButton: false })}
                                     </div>
                                 ))}
                             </div>
@@ -2254,6 +2660,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                         Error: {caja.comentarios}
                                                                     </p>
                                                                 )}
+                                                                {renderEvidenceGallery(caja.detalleId, caja.fotos, { compact: true })}
                                                             </div>
                                                             <div className="flex items-center gap-2 shrink-0">
                                                                 {caja.tieneDefectos && (
@@ -2261,14 +2668,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                         Con defecto
                                                                     </span>
                                                                 )}
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => openEvidenceForCaja(caja.detalleId)}
-                                                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
-                                                                    title="Agregar fotos de evidencia"
-                                                                >
-                                                                    <Camera className="w-3.5 h-3.5" />
-                                                                </button>
                                                             </div>
                                                         </div>
                                                     );
@@ -2411,29 +2810,61 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
             {isEvidenceModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center border-b pb-3">
                             <h3 className="text-xl font-bold flex items-center gap-2">
-                                <AlertCircle className="w-5 h-5 text-destructive" /> Evidencia de defectos
+                                <Camera className="w-5 h-5 text-primary" /> Fotos de la Caja
                             </h3>
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => { setIsEvidenceModalOpen(false); setEvidenceTargetId(null); }}
-                                disabled={isEvidenceUploading}
+                                disabled={isEvidenceUploading || deletingEvidenceId !== null}
                             >
                                 &times;
                             </Button>
                         </div>
 
-                        <p className="text-muted-foreground text-sm">
-                            Suba fotos para el detalle #{evidenceTargetId ?? lastDetalleId}.
-                        </p>
+                        <div className="rounded-xl border bg-gradient-to-r from-slate-50 to-blue-50/60 p-4">
+                            <p className="text-sm text-muted-foreground">
+                                Detalle #{evidenceTargetId ?? lastDetalleId}. En tarimas activas puede agregar o eliminar fotos asociadas a esta caja.
+                            </p>
+                        </div>
 
                         <form onSubmit={handleEvidenceSubmit} className="space-y-4">
+                            {typeof (evidenceTargetId ?? lastDetalleId) === "number" && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-semibold text-card-foreground">Galeria actual</p>
+                                            <p className="text-xs text-muted-foreground">Fotos ya asociadas a esta caja.</p>
+                                        </div>
+                                        {isEvidenceListLoadingByDetalleId[evidenceTargetId ?? lastDetalleId ?? 0] && (
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                Actualizando...
+                                            </div>
+                                        )}
+                                    </div>
+                                    {renderEvidenceGallery(
+                                        evidenceTargetId ?? lastDetalleId ?? 0,
+                                        getCajaFallbackFotos(evidenceTargetId ?? lastDetalleId ?? 0),
+                                        { editable: true, showManageButton: false }
+                                    )}
+                                    {!getCajaEvidencias(
+                                        evidenceTargetId ?? lastDetalleId ?? 0,
+                                        getCajaFallbackFotos(evidenceTargetId ?? lastDetalleId ?? 0)
+                                    ).length &&
+                                        !isEvidenceListLoadingByDetalleId[evidenceTargetId ?? lastDetalleId ?? 0] && (
+                                        <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground text-center">
+                                            Esta caja todavia no tiene fotos.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <div className="space-y-2">
                                 <Label htmlFor="evidencias" className="text-card-foreground">
-                                    Fotos (formatos de imagen)
+                                    Agregar nuevas fotos
                                 </Label>
                                 <Input
                                     id="evidencias"
@@ -2442,18 +2873,18 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     capture="environment"
                                     multiple
                                     onChange={handleEvidenceFileChange}
-                                    disabled={isEvidenceUploading}
+                                    disabled={isEvidenceUploading || deletingEvidenceId !== null}
                                 />
                                 {selectedEvidenceFiles.length > 0 && (
                                     <div className="space-y-2">
                                         <p className="text-xs text-muted-foreground">
                                             {selectedEvidenceFiles.length} archivo(s) seleccionado(s). Puede seguir agregando más fotos antes de subir.
                                         </p>
-                                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
                                             {selectedEvidenceFiles.map((file, index) => (
                                                 <div
                                                     key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                                                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2"
+                                                    className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-3 py-2"
                                                 >
                                                     <div className="min-w-0">
                                                         <p className="truncate text-sm font-medium">{file.name}</p>
@@ -2467,7 +2898,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                         size="icon"
                                                         className="h-8 w-8 shrink-0"
                                                         onClick={() => handleRemoveEvidenceFile(index)}
-                                                        disabled={isEvidenceUploading}
+                                                        disabled={isEvidenceUploading || deletingEvidenceId !== null}
                                                         title="Quitar foto"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -2497,7 +2928,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <Button
                                     type="submit"
                                     className="flex-1 h-14 text-base"
-                                    disabled={isEvidenceUploading || !selectedEvidenceFiles.length}
+                                    disabled={isEvidenceUploading || deletingEvidenceId !== null || !selectedEvidenceFiles.length}
                                 >
                                     {isEvidenceUploading ? (
                                         <>
@@ -2505,7 +2936,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             Subiendo...
                                         </>
                                     ) : (
-                                        "Subir evidencia"
+                                        "Subir fotos"
                                     )}
                                 </Button>
                                 <Button
@@ -2513,7 +2944,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     variant="outline"
                                     className="flex-1 h-14 text-base"
                                     onClick={() => { setIsEvidenceModalOpen(false); setEvidenceTargetId(null); }}
-                                    disabled={isEvidenceUploading}
+                                    disabled={isEvidenceUploading || deletingEvidenceId !== null}
                                 >
                                     Cancelar
                                 </Button>
