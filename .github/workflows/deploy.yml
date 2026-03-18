@@ -23,17 +23,17 @@ jobs:
         run: |
           $sourcePath = "."
           $destinationPath = "C:\inetpub\wwwroot\NextQuality"
-          robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env
+          robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env .env.local web.config
           if ($lastexitcode -lt 8) { exit 0 } else { exit $lastexitcode }
         shell: powershell
 
       - name: Restart App with PM2
         run: |
           $ErrorActionPreference = "SilentlyContinue"
-          pm2 delete "comercial-quality" | Out-Null
+          npx pm2 delete "comercial-quality" | Out-Null
           $ErrorActionPreference = "Stop"
 
           cd "C:\inetpub\wwwroot\NextQuality"
-          pm2 start ecosystem.config.js
-          pm2 save
+          npx pm2 start ecosystem.config.js
+          npx pm2 save
         shell: powershell
