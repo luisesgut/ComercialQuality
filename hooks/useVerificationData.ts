@@ -151,12 +151,13 @@ export function useVerificationData(): HookResult {
 
         const etiquetaData = {
             id: 0,
-            area: "BIOFLEX",
+            area: String(produccionBolseoData?.area ?? "BIOFLEX").trim(),
             claveProducto,
             nombreProducto: String(produccionBolseoData?.producto ?? "").trim(),
             orden,
             trazabilidad: trazabilityCode,
             printCard: String(produccionBolseoData?.printCard ?? "").trim() || null,
+            piezas: Number(produccionBolseoData?.piezas) || 0,
             uom: "",
             maquina: "",
         };

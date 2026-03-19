@@ -149,7 +149,7 @@ export function NewVerificationForm() {
     const { etiqueta, valoresTecnicos } = consolidatedData;
     let valor = "";
     if (mode === "bioflex") {
-      valor = String((valoresTecnicos?.piezasPorCaja || 0) * 10);
+      valor = String((etiqueta as any).piezas || valoresTecnicos?.piezasPorCaja || "");
     } else if (mode === "destiny") {
       const destLabel = etiqueta as unknown as DestinyEtiquetaData;
       valor = String(destLabel.prodEtiquetasDestiny?.qtyUOM || "");
@@ -687,7 +687,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
 
     // Display values (Calculados según modo para la vista previa)
     const piezasPorCajaDisplay = isBioflex
-      ? ((etiqueta as any).valor || valoresTecnicos?.piezasPorCaja)
+      ? ((etiqueta as any).piezas || valoresTecnicos?.piezasPorCaja)
       : (isDestinyEtiqueta(etiqueta)
         ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-")
         : (valoresTecnicos?.piezasPorCaja ?? "-"));

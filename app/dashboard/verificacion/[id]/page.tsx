@@ -19,7 +19,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, Camera, Trash2, ExternalLink, ChevronsUpDown } from 'lucide-react';
+import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, Camera, Trash2, ExternalLink, ChevronsUpDown, ScanLine } from 'lucide-react';
+import { QrScannerModal } from "@/components/QrScannerModal";
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -118,6 +119,8 @@ interface EvidenciaCajaItem {
 interface EvidenciaCajaApiItem {
     evidenciaId?: number;
     EvidenciaId?: number;
+    id?: number;
+    Id?: number;
     foto?: string | null;
     Foto?: string | null;
     ruta?: string | null;
@@ -251,6 +254,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isDeletingTarima, setIsDeletingTarima] = useState(false);
     const [deleteTarimaError, setDeleteTarimaError] = useState<string | null>(null);
     const [trazabilidadInput, setTrazabilidadInput] = useState("");
+    const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
     const [consecutivoManualInput, setConsecutivoManualInput] = useState("");
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
@@ -839,7 +843,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     };
 
     const normalizeEvidenceItem = (item: EvidenciaCajaApiItem): EvidenciaCajaItem | null => {
-        const evidenciaId = Number(item.evidenciaId ?? item.EvidenciaId);
+        const evidenciaId = Number(item.evidenciaId ?? item.EvidenciaId ?? item.id ?? item.Id);
         const rawUrl =
             item.url ??
             item.Url ??
@@ -863,10 +867,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     };
 
     function getCajaEvidencias(detalleId: number, fallbackFotos?: string[]) {
-        if (Object.prototype.hasOwnProperty.call(evidenceByDetalleId, detalleId)) {
-            return evidenceByDetalleId[detalleId] ?? [];
+        const apiData = evidenceByDetalleId[detalleId];
+        if (apiData?.length) {
+            return apiData;
         }
-
+        // Si la API no tiene datos (key no existe o devolvió vacío), usar fallback de caja.fotos
         return (fallbackFotos ?? []).map((foto, index) => ({
             evidenciaId: -(index + 1),
             url: resolveEvidenceUrl(foto),
@@ -1205,9 +1210,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setEvidenceSuccess(null);
         setSelectedEvidenceFiles([]);
         setIsEvidenceModalOpen(true);
-        void fetchCajaEvidencias(detalleId).catch((err: any) => {
-            setEvidenceError(err.message || "No se pudieron cargar las fotos de la caja.");
-        });
+        // Solo volver a fetchear si no hay datos cacheados válidos para este detalle
+        const cached = evidenceByDetalleId[detalleId];
+        if (!cached?.length) {
+            void fetchCajaEvidencias(detalleId).catch((err: any) => {
+                setEvidenceError(err.message || "No se pudieron cargar las fotos de la caja.");
+            });
+        }
     };
 
     const handleRegisterScan = async (event: React.FormEvent) => {
@@ -1467,7 +1476,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
         try {
             const formData = new FormData();
-            selectedEvidenceFiles.forEach((file) => formData.append("Fotos", file));
+            selectedEvidenceFiles.forEach((file) => formData.append("foto", file));
 
             const response = await fetch(`${API_BASE_URL}/Verificacion/fotos-caja/${activeDetalleId}`, {
                 method: "POST",
@@ -2150,14 +2159,26 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             {currentVerificationType === "BIOFLEX" ? (
                                 <div className="space-y-2">
                                     <Label htmlFor="trazabilidad" className="text-base font-medium">Trazabilidad</Label>
-                                    <Input
-                                        id="trazabilidad"
-                                        className="h-14 text-base"
-                                        value={trazabilidadInput}
-                                        onChange={(e) => setTrazabilidadInput(e.target.value)}
-                                        placeholder="Escanee o ingrese la trazabilidad"
-                                        disabled={isRegisteringScan}
-                                    />
+                                    <div className="flex gap-2">
+                                        <Input
+                                            id="trazabilidad"
+                                            className="h-14 text-base"
+                                            value={trazabilidadInput}
+                                            onChange={(e) => setTrazabilidadInput(e.target.value)}
+                                            placeholder="Escanee o ingrese la trazabilidad"
+                                            disabled={isRegisteringScan}
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-14 w-14 shrink-0"
+                                            onClick={() => setIsQrScannerOpen(true)}
+                                            disabled={isRegisteringScan}
+                                            title="Escanear QR"
+                                        >
+                                            <ScanLine className="w-6 h-6" />
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="space-y-2">
@@ -3224,7 +3245,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     </div>
                 </div>
             )}
-    
+
+            {isQrScannerOpen && (
+                <QrScannerModal
+                    onScan={(value) => {
+                        setTrazabilidadInput(value);
+                        setIsQrScannerOpen(false);
+                    }}
+                    onClose={() => setIsQrScannerOpen(false)}
+                />
+            )}
+
         </div>
     );
 }
