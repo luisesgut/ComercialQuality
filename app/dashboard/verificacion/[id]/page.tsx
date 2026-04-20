@@ -12,6 +12,7 @@ import { VerificationProvider } from '@/lib/verification-context';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, Camera, Trash2, ExternalLink, ChevronsUpDown, ScanLine } from 'lucide-react';
+import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, CheckCircle2, Camera, Trash2, ExternalLink, ChevronsUpDown, ScanLine, Search } from 'lucide-react';
 import { QrScannerModal } from "@/components/QrScannerModal";
 
 // URL Base de la API
@@ -57,6 +58,11 @@ interface TarimaActivaCaja {
     fotos?: string[];
 }
 
+interface TarimaColaborador {
+    usuario: string;
+    cajasEscaneadas: number;
+}
+
 interface TarimaActivaDetalle {
     tarimaId: number;
     numeroTarima: number;
@@ -68,7 +74,29 @@ interface TarimaActivaDetalle {
     usuarioCreo: string;
     fechaInicio: string;
     fechaCierre: string | null;
+    colaboradores?: TarimaColaborador[];
     cajas: TarimaActivaCaja[];
+}
+
+interface DestinyCajaDisponible {
+    trazabilidad: string;
+    piezas: number;
+    yaRevisada: boolean;
+    detalleId: number | null;
+}
+
+interface DestinyMaquinaDisponible {
+    noMaquina: number;
+    totalCajas: number;
+    cajasRevisadas: number;
+    cajas: DestinyCajaDisponible[];
+}
+
+interface DestinyCajasDisponiblesResponse {
+    orden: number;
+    nombreProducto: string;
+    totalCajas: number;
+    maquinas: DestinyMaquinaDisponible[];
 }
 
 interface RegistrarEscaneoResponse {
@@ -171,6 +199,7 @@ interface CajaEscaneadaEvent {
     CajasEscaneadas: number;
     CajasMeta: number;
     TarimaCompleta: boolean;
+    Trazabilidad?: string;
 }
 
 interface TarimaCreadaEvent {
@@ -191,6 +220,7 @@ interface CajaEliminadaEvent {
     DetalleId: number;
     TarimaId: number;
     CajasEscaneadas: number;
+    Trazabilidad?: string;
 }
 
 interface TarimaReabiertaEvent {
@@ -256,6 +286,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [trazabilidadInput, setTrazabilidadInput] = useState("");
     const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
     const [consecutivoManualInput, setConsecutivoManualInput] = useState("");
+    const [destinyCajasDisponibles, setDestinyCajasDisponibles] = useState<DestinyCajasDisponiblesResponse | null>(null);
+    const [isDestinyCajasLoading, setIsDestinyCajasLoading] = useState(false);
+    const [destinyCajasError, setDestinyCajasError] = useState<string | null>(null);
+    const [selectedDestinyCaja, setSelectedDestinyCaja] = useState<DestinyCajaDisponible | null>(null);
+    const [destinySearchByMachine, setDestinySearchByMachine] = useState<Record<number, string>>({});
+    const [openMaquinaAccordion, setOpenMaquinaAccordion] = useState<string>("");
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
     const [tieneDefectosInput, setTieneDefectosInput] = useState(false);
@@ -410,6 +446,60 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
     }, []);
 
+    const fetchDestinyCajasDisponibles = useCallback(
+        async (orden: string, options?: { silent?: boolean }) => {
+            const normalizedOrden = String(orden ?? "").trim();
+            if (!normalizedOrden) {
+                setDestinyCajasDisponibles(null);
+                setDestinyCajasError(null);
+                setSelectedDestinyCaja(null);
+                return;
+            }
+
+            const silent = options?.silent ?? false;
+            if (!silent) {
+                setIsDestinyCajasLoading(true);
+            }
+            setDestinyCajasError(null);
+
+            try {
+                const response = await fetch(
+                    `${API_BASE_URL}/Verificacion/cajas-disponibles/${encodeURIComponent(normalizedOrden)}`
+                );
+                if (!response.ok) {
+                    throw new Error(`Error (${response.status}) al obtener cajas disponibles de Destiny.`);
+                }
+
+                const data: DestinyCajasDisponiblesResponse = await response.json();
+                setDestinyCajasDisponibles(data);
+                setDestinySearchByMachine((current) => {
+                    const next: Record<number, string> = {};
+                    for (const maquina of data.maquinas ?? []) {
+                        next[maquina.noMaquina] = current[maquina.noMaquina] ?? "";
+                    }
+                    return next;
+                });
+                setSelectedDestinyCaja((current) => {
+                    if (!current?.trazabilidad) return null;
+                    const matchedCaja = data.maquinas
+                        ?.flatMap((maquina) => maquina.cajas ?? [])
+                        .find((caja) => caja.trazabilidad === current.trazabilidad && !caja.yaRevisada);
+                    return matchedCaja ?? null;
+                });
+            } catch (err: any) {
+                setDestinyCajasError(err.message || "Error de conexión al cargar cajas disponibles de Destiny.");
+                setDestinyCajasDisponibles(null);
+                setSelectedDestinyCaja(null);
+                setDestinySearchByMachine({});
+            } finally {
+                if (!silent) {
+                    setIsDestinyCajasLoading(false);
+                }
+            }
+        },
+        []
+    );
+
     const fetchCatalogoDefectos = useCallback(async () => {
         setIsCatalogoDefectosLoading(true);
         setCatalogoDefectosError(null);
@@ -478,6 +568,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setRegisterStatusMessage(null);
         setCloseTarimaError(null);
         setCloseTarimaSuccess(null);
+        setSelectedDestinyCaja(null);
+        setDestinySearchByMachine({});
     }, [selectedTarima]);
 
     useEffect(() => {
@@ -503,6 +595,16 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         const timeoutId = window.setTimeout(() => setCloseTarimaSuccess(null), 4000);
         return () => window.clearTimeout(timeoutId);
     }, [closeTarimaSuccess]);
+
+    // Evitar cierre accidental de pestaña cuando hay una tarima activa seleccionada
+    useEffect(() => {
+        if (!selectedTarima) return;
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [selectedTarima]);
 
     useEffect(() => {
         if (!registerSuccess) return;
@@ -547,9 +649,41 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     }, [closeTarimaError]);
 
     useEffect(() => {
+        const isDestiny =
+            dashboardData?.cliente === "DESTINY" ||
+            (dashboardData?.productoInfo ?? dashboardData?.nombreProducto ?? "").toUpperCase().includes("DESTINY");
+        if (isDestiny && selectedDestinyCaja) {
+            setQtyUomEtiquetaInput(String(selectedDestinyCaja.piezas));
+            return;
+        }
+
         const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
         setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
-    }, [dashboardData?.piezasPorCaja]);
+    }, [dashboardData?.cliente, dashboardData?.nombreProducto, dashboardData?.piezasPorCaja, dashboardData?.productoInfo, selectedDestinyCaja]);
+
+    useEffect(() => {
+        const isDestiny =
+            dashboardData?.cliente === "DESTINY" ||
+            (dashboardData?.productoInfo ?? dashboardData?.nombreProducto ?? "").toUpperCase().includes("DESTINY");
+        if (!isDestiny) {
+            setDestinyCajasDisponibles(null);
+            setDestinyCajasError(null);
+            setSelectedDestinyCaja(null);
+            setDestinySearchByMachine({});
+            return;
+        }
+
+        const orden = String(dashboardData?.loteOrden ?? "").trim();
+        if (!orden) return;
+
+        void fetchDestinyCajasDisponibles(orden);
+    }, [
+        dashboardData?.cliente,
+        dashboardData?.loteOrden,
+        dashboardData?.nombreProducto,
+        dashboardData?.productoInfo,
+        fetchDestinyCajasDisponibles,
+    ]);
 
     useEffect(() => {
         selectedTarimaIdRef.current = selectedTarima?.tarimaId ?? null;
@@ -613,6 +747,28 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             .build();
 
         const onCajaEscaneada = (data: CajaEscaneadaEvent) => {
+            console.log("[SignalR] CajaEscaneada raw data:", JSON.stringify(data));
+            // Marcar la caja Destiny como ya revisada sin re-fetch
+            const trazabilidad = data.Trazabilidad ?? (data as any).trazabilidad;
+            if (trazabilidad) {
+                setDestinyCajasDisponibles(prev => {
+                    if (!prev) return prev;
+                    return {
+                        ...prev,
+                        maquinas: prev.maquinas.map(maquina => ({
+                            ...maquina,
+                            cajasRevisadas: maquina.cajas.some(c => c.trazabilidad === trazabilidad && !c.yaRevisada)
+                                ? maquina.cajasRevisadas + 1
+                                : maquina.cajasRevisadas,
+                            cajas: maquina.cajas.map(caja =>
+                                caja.trazabilidad === trazabilidad
+                                    ? { ...caja, yaRevisada: true }
+                                    : caja
+                            ),
+                        })),
+                    };
+                });
+            }
             refreshVerificationData({
                 includeTerminadas: data.TarimaCompleta,
                 tarimaId: data.TarimaId,
@@ -631,6 +787,26 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         };
 
         const onCajaEliminada = (data: CajaEliminadaEvent) => {
+            const trazabilidad = data.Trazabilidad ?? (data as any).trazabilidad;
+            if (trazabilidad) {
+                setDestinyCajasDisponibles(prev => {
+                    if (!prev) return prev;
+                    return {
+                        ...prev,
+                        maquinas: prev.maquinas.map(maquina => ({
+                            ...maquina,
+                            cajasRevisadas: maquina.cajas.some(c => c.trazabilidad === trazabilidad && c.yaRevisada)
+                                ? maquina.cajasRevisadas - 1
+                                : maquina.cajasRevisadas,
+                            cajas: maquina.cajas.map(caja =>
+                                caja.trazabilidad === trazabilidad
+                                    ? { ...caja, yaRevisada: false }
+                                    : caja
+                            ),
+                        })),
+                    };
+                });
+            }
             refreshVerificationData({
                 includeTerminadas: false,
                 includeDefectos: true,
@@ -926,19 +1102,24 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     .map((caja) => Number(caja.detalleId))
                     .filter((detalleId) => Number.isFinite(detalleId) && detalleId > 0)
             )
-        );
+        ).filter((id) => !evidenceByDetalleId[id]?.length); // skip IDs ya cacheados
 
         if (!detalleIds.length) return;
 
-        await Promise.all(
-            detalleIds.map(async (detalleId) => {
-                try {
-                    await fetchCajaEvidencias(detalleId);
-                } catch {
-                    // keep fallback fotos from tarima payload
-                }
-            })
-        );
+        // Fetch en lotes de 5 para no saturar el servidor con 50+ requests simultáneas
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < detalleIds.length; i += BATCH_SIZE) {
+            const batch = detalleIds.slice(i, i + BATCH_SIZE);
+            await Promise.all(
+                batch.map(async (detalleId) => {
+                    try {
+                        await fetchCajaEvidencias(detalleId);
+                    } catch {
+                        // keep fallback fotos from tarima payload
+                    }
+                })
+            );
+        }
     }
 
     async function parseApiError(response: Response, fallback: string) {
@@ -1082,6 +1263,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const resetScanForm = () => {
         setTrazabilidadInput("");
         setConsecutivoManualInput("");
+        setSelectedDestinyCaja(null);
+        setDestinySearchByMachine({});
         const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
         setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
         setPiezasAuditadasInput("");
@@ -1166,7 +1349,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setCreateTarimaSuccess("Tarima creada correctamente.");
             fetchTarimasActivas();
             fetchTarimasTerminadas();
-            fetchDashboardData();
+            fetchDashboardData({ silent: true });
         } catch (err: any) {
             setCreateTarimaError(err.message || "Error de conexión al crear tarima.");
         } finally {
@@ -1228,13 +1411,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setRegisterStatusMessage(null);
 
         const isBioflex = currentVerificationType === "BIOFLEX";
+        const isDestiny = currentVerificationType === "DESTINY";
 
         if (isBioflex && !trazabilidadInput) {
             setRegisterError("Ingrese la trazabilidad para registrar la caja.");
             return;
         }
 
-        if (!isBioflex && !consecutivoManualInput) {
+        if (isDestiny && !selectedDestinyCaja?.trazabilidad) {
+            setRegisterError("Seleccione una caja disponible de Destiny antes de registrar.");
+            return;
+        }
+
+        if (!isBioflex && !isDestiny && !consecutivoManualInput) {
             setRegisterError("Ingrese el consecutivo manual para registrar la caja.");
             return;
         }
@@ -1288,16 +1477,23 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
         }
 
-        const tipoEtiqueta = currentVerificationType;
+        const tipoEtiqueta = isDestiny ? "Trazable" : currentVerificationType;
+        const trazabilidadPayload = isBioflex
+            ? trazabilidadInput
+            : isDestiny
+              ? selectedDestinyCaja?.trazabilidad ?? null
+              : null;
+        const consecutivoManualPayload = isBioflex || isDestiny ? 0 : Number(consecutivoManualInput);
 
         const payload: Record<string, any> = {
             verificacionId: verifiedIdNumber,
             tarimaId: selectedTarima.tarimaId,
-            trazabilidad: isBioflex ? trazabilidadInput : null,
-            consecutivoManual: isBioflex ? 0 : Number(consecutivoManualInput),
+            trazabilidad: trazabilidadPayload,
+            consecutivoManual: consecutivoManualPayload,
             qtyUomEtiqueta: qtyUomEtiquetaInput,
             tipoEtiqueta,
             piezasAuditadas: piezasAuditadasValue,
+            usuario: user?.name ?? "",
         };
 
         setIsRegisteringScan(true);
@@ -1378,6 +1574,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 );
                 resetScanForm();
                 fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+                fetchTarimasActivas();
+                fetchDashboardData({ silent: true });
+                if (isDestiny) {
+                    fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""), { silent: true });
+                }
 
                 if (tieneDefectosInput) {
                     setEvidenceTargetId(Number(reescanData.detalleId));
@@ -1427,9 +1628,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             fetchTarimasTerminadas();
             fetchTarimaActivaDetalle(selectedTarima.tarimaId);
             fetchDashboardData();
+            if (isDestiny) {
+                fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""), { silent: true });
+            }
 
             if (tieneDefectosInput && data?.ultimoDetalleId) {
-                setEvidenceTargetId(null);
+                setEvidenceTargetId(Number(data.ultimoDetalleId));
                 setIsEvidenceModalOpen(true);
             }
         } catch (err: any) {
@@ -1668,8 +1872,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
 
             setDeleteCajaSuccess("Caja eliminada correctamente.");
-            fetchTarimaActivaDetalle(tarimaId);
+            // Quitar la caja del estado local inmediatamente (optimistic update)
+            setTarimaActivaDetalle(prev => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    cajasEscaneadas: prev.cajasEscaneadas - 1,
+                    cajas: prev.cajas.filter(c => c.detalleId !== detalleId),
+                };
+            });
             fetchTarimasActivas();
+            fetchTarimaActivaDetalle(tarimaId);
             fetchDashboardData();
             fetchDefectosResumen();
         } catch (err: any) {
@@ -1740,7 +1953,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
             {/* Header */}
             <div className="space-y-2">
-                <Button variant="ghost" size="icon" className="h-10 w-10" onClick={() => router.push("/dashboard/pendientes")}>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-12 w-12"
+                    onClick={() => {
+                        if (selectedTarima && !window.confirm("Hay una tarima activa. ¿Deseas salir de todas formas?")) return;
+                        router.push("/dashboard/pendientes");
+                    }}
+                >
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <Card className="border-0 shadow-md bg-card">
@@ -1915,12 +2136,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     if (selectedTarima) fetchTarimaActivaDetalle(selectedTarima.tarimaId);
                                 }}
                                 disabled={isTarimasLoading}
-                                className="h-10 px-3 text-sm"
+                                className="h-12 px-3 text-sm"
                             >
                                 {isTarimasLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refrescar"}
                             </Button>
                             <Button
-                                className="h-10 px-4 text-sm font-semibold"
+                                className="h-12 px-4 text-sm font-semibold"
                                 onClick={handleCreateTarima}
                                 disabled={isCreatingTarima || dashboardData.estado !== "EN PROCESO"}
                             >
@@ -1984,7 +2205,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     <button
                                         type="button"
                                         onClick={() => setSelectedTarima(tarima)}
-                                        className="w-full text-left"
+                                        className="w-full text-left [touch-action:manipulation]"
                                     >
                                         <div className="flex items-start justify-between mb-3">
                                             <div>
@@ -2018,9 +2239,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 <button
                                                     type="button"
                                                     onClick={(e) => { e.stopPropagation(); setDeleteTarimaError(null); setDeleteTarimaConfirmId(tarima.tarimaId); }}
-                                                    className="flex items-center gap-1 text-xs text-destructive hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-destructive/10"
+                                                    className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive transition-colors px-3 py-2 rounded-lg hover:bg-destructive/10 min-h-[44px] [touch-action:manipulation]"
                                                 >
-                                                    <Trash2 className="w-3 h-3" />
+                                                    <Trash2 className="w-4 h-4" />
                                                     Eliminar
                                                 </button>
                                             )}
@@ -2060,6 +2281,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
                                 <AlertCircle className="w-4 h-4" />
                                 {tarimaActivaDetalleError}
+                            </div>
+                        )}
+                        {!isTarimaActivaDetalleLoading && selectedTarimaDetalle?.colaboradores && selectedTarimaDetalle.colaboradores.length > 0 && (
+                            <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase mb-1.5">Colaboradores</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedTarimaDetalle.colaboradores.map((col) => (
+                                        <div key={col.usuario} className="flex items-center gap-1.5 text-xs bg-card border border-border rounded-full px-2.5 py-1">
+                                            <span className="font-medium">{col.usuario}</span>
+                                            <span className="text-muted-foreground">{col.cajasEscaneadas} cjas</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                         {!isTarimaActivaDetalleLoading && !tarimaActivaDetalleError && selectedTarimaDetalle?.cajas?.length === 0 && (
@@ -2179,6 +2413,174 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             <ScanLine className="w-6 h-6" />
                                         </Button>
                                     </div>
+                                </div>
+                            ) : currentVerificationType === "DESTINY" ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <Label className="text-base font-medium">Caja Destiny</Label>
+                                            <p className="text-sm text-muted-foreground">
+                                                Seleccione la trazabilidad exacta a revisar en esta tarima.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""))}
+                                            disabled={isRegisteringScan || isDestinyCajasLoading}
+                                        >
+                                            {isDestinyCajasLoading ? "Cargando..." : "Actualizar"}
+                                        </Button>
+                                    </div>
+
+                                    {destinyCajasDisponibles && (
+                                        <div className="rounded-xl border border-border bg-muted/20 p-4">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Badge variant="secondary">Orden {destinyCajasDisponibles.orden}</Badge>
+                                                <Badge variant="outline">{destinyCajasDisponibles.totalCajas} cajas</Badge>
+                                            </div>
+                                            <p className="mt-2 text-sm font-medium text-foreground">
+                                                {destinyCajasDisponibles.nombreProducto}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {destinyCajasError && (
+                                        <p className="text-sm text-destructive">{destinyCajasError}</p>
+                                    )}
+
+                                    {isDestinyCajasLoading ? (
+                                        <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                                            Cargando cajas disponibles...
+                                        </div>
+                                    ) : destinyCajasDisponibles?.maquinas?.length ? (
+                                        <Accordion type="single" collapsible className="w-full rounded-xl border border-border px-4" value={openMaquinaAccordion} onValueChange={setOpenMaquinaAccordion}>
+                                            {destinyCajasDisponibles.maquinas.map((maquina) => {
+                                                const tieneSeleccionada = selectedDestinyCaja
+                                                    ? maquina.cajas.some(c => c.trazabilidad === selectedDestinyCaja.trazabilidad)
+                                                    : false;
+                                                return (
+                                                <AccordionItem key={`maquina-${maquina.noMaquina}`} value={`maquina-${maquina.noMaquina}`}>
+                                                    <AccordionTrigger className="text-left">
+                                                        <div className="flex flex-1 flex-wrap items-center gap-2 pr-4">
+                                                            <span className="font-semibold">Máquina {maquina.noMaquina}</span>
+                                                            <Badge variant="outline">{maquina.totalCajas} cajas</Badge>
+                                                            <Badge variant="secondary">{maquina.cajasRevisadas} revisadas</Badge>
+                                                            {tieneSeleccionada && (
+                                                                <Badge className="bg-primary/15 text-primary border-primary/30 border">Seleccionada</Badge>
+                                                            )}
+                                                        </div>
+                                                    </AccordionTrigger>
+                                                    <AccordionContent>
+                                                        <div className="space-y-3 pt-1 max-h-[420px] overflow-y-auto pr-1">
+                                                            <div className="relative sticky top-0 z-10 bg-background pb-1">
+                                                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                                                <Input
+                                                                    value={destinySearchByMachine[maquina.noMaquina] ?? ""}
+                                                                    onChange={(e) =>
+                                                                        setDestinySearchByMachine((current) => ({
+                                                                            ...current,
+                                                                            [maquina.noMaquina]: e.target.value,
+                                                                        }))
+                                                                    }
+                                                                    placeholder="Buscar por consecutivo o trazabilidad"
+                                                                    className="h-11 pl-9"
+                                                                    disabled={isRegisteringScan}
+                                                                />
+                                                            </div>
+                                                            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                                            {maquina.cajas
+                                                                .filter((caja) => {
+                                                                    const query = (destinySearchByMachine[maquina.noMaquina] ?? "").trim();
+                                                                    if (!query) return true;
+                                                                    const consecutivo = caja.trazabilidad.slice(-3);
+                                                                    const haystack = `${caja.trazabilidad} ${consecutivo}`.toLowerCase();
+                                                                    return haystack.includes(query.toLowerCase());
+                                                                })
+                                                                .map((caja) => {
+                                                                const isSelected = selectedDestinyCaja?.trazabilidad === caja.trazabilidad;
+                                                                const consecutivo = caja.trazabilidad.slice(-3);
+                                                                return (
+                                                                    <button
+                                                                        key={caja.trazabilidad}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            if (caja.yaRevisada || isRegisteringScan) return;
+                                                                            setSelectedDestinyCaja(caja);
+                                                                            setTrazabilidadInput(caja.trazabilidad);
+                                                                            setPiezasAuditadasInput(String(caja.piezas));
+                                                                            setRegisterError(null);
+                                                                            setOpenMaquinaAccordion("");
+                                                                        }}
+                                                                        disabled={caja.yaRevisada || isRegisteringScan}
+                                                                        className={`rounded-xl border p-3 text-left transition-colors ${
+                                                                            caja.yaRevisada
+                                                                                ? "cursor-not-allowed border-border/60 bg-muted/30 opacity-70"
+                                                                                : isSelected
+                                                                                  ? "border-primary bg-primary/10 shadow-sm"
+                                                                                  : "border-border bg-background hover:border-primary/40"
+                                                                        }`}
+                                                                    >
+                                                                        <div className="flex items-start justify-between gap-3">
+                                                                            <div className="min-w-0">
+                                                                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                                                                    Consecutivo
+                                                                                </p>
+                                                                                <p className="mt-1 text-3xl font-black leading-none text-foreground">
+                                                                                    {consecutivo}
+                                                                                </p>
+                                                                                <p className="mt-3 text-xs font-medium text-muted-foreground">
+                                                                                    Trazabilidad
+                                                                                </p>
+                                                                                <p className="mt-1 text-sm font-semibold text-foreground break-all">
+                                                                                    {caja.trazabilidad}
+                                                                                </p>
+                                                                                <p className="mt-2 text-xs text-muted-foreground">
+                                                                                    {caja.piezas} piezas
+                                                                                </p>
+                                                                            </div>
+                                                                            {caja.yaRevisada ? (
+                                                                                <Badge variant="secondary">Revisada</Badge>
+                                                                            ) : isSelected ? (
+                                                                                <Badge>Seleccionada</Badge>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                            </div>
+                                                            {maquina.cajas.filter((caja) => {
+                                                                const query = (destinySearchByMachine[maquina.noMaquina] ?? "").trim();
+                                                                if (!query) return false;
+                                                                const consecutivo = caja.trazabilidad.slice(-3);
+                                                                const haystack = `${caja.trazabilidad} ${consecutivo}`.toLowerCase();
+                                                                return haystack.includes(query.toLowerCase());
+                                                            }).length === 0 && (
+                                                                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                                                                    No hay cajas que coincidan con esa búsqueda en la máquina {maquina.noMaquina}.
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                                );
+                                            })}
+                                        </Accordion>
+                                    ) : (
+                                        <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                                            No hay cajas disponibles para esta orden.
+                                        </div>
+                                    )}
+
+                                    {selectedDestinyCaja && (
+                                        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                                            <p className="text-sm font-semibold text-foreground">Caja seleccionada</p>
+                                            <p className="mt-1 text-sm text-muted-foreground break-all">
+                                                {selectedDestinyCaja.trazabilidad}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="space-y-2">
@@ -2940,7 +3342,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                             {evidenceSuccess && (
                                 <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
-                                    <AlertCircle className="w-4 h-4" />
+                                    <CheckCircle2 className="w-4 h-4" />
                                     {evidenceSuccess}
                                 </div>
                             )}
@@ -3055,7 +3457,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                             {closeTarimaSuccess && (
                                 <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
-                                    <AlertCircle className="w-4 h-4" />
+                                    <CheckCircle2 className="w-4 h-4" />
                                     {closeTarimaSuccess}
                                 </div>
                             )}
@@ -3211,7 +3613,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                             {finishSuccess && (
                                 <div className="flex items-center gap-2 text-sm text-green-600 bg-green-100 p-3 rounded-lg">
-                                    <AlertCircle className="w-4 h-4" />
+                                    <CheckCircle2 className="w-4 h-4" />
                                     {finishSuccess}
                                 </div>
                             )}

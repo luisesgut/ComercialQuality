@@ -1,14 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertCircle, Loader2, PlusCircle, RefreshCw, ShieldAlert, Trash2 } from "lucide-react"
+import { AlertCircle, Check, ChevronsUpDown, Loader2, PlusCircle, RefreshCw, ShieldAlert, Trash2 } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 const API_BASE_URL = "http://172.16.10.31/api"
 
@@ -27,6 +29,7 @@ export function AdminDefectCatalog() {
   const [catalogoDefectos, setCatalogoDefectos] = useState<DefectoCatalogItem[]>([])
   const [detalle, setDetalle] = useState("")
   const [familia, setFamilia] = useState("")
+  const [isFamiliaOpen, setIsFamiliaOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -72,6 +75,15 @@ export function AdminDefectCatalog() {
       return acc
     }, {})
   }, [catalogoDefectos])
+
+  const familiasDisponibles = useMemo(() => {
+    return Array.from(
+      new Set(catalogoDefectos.map((defecto) => defecto.familia?.trim()).filter((familia): familia is string => Boolean(familia))),
+    ).sort((a, b) => a.localeCompare(b))
+  }, [catalogoDefectos])
+
+  const familiaNormalizada = familia.trim().toLocaleLowerCase()
+  const familiaExiste = familiasDisponibles.some((familiaOption) => familiaOption.toLocaleLowerCase() === familiaNormalizada)
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -199,13 +211,67 @@ export function AdminDefectCatalog() {
 
           <div className="space-y-2">
             <Label htmlFor="nuevo-defecto-familia">Familia</Label>
+            <Popover open={isFamiliaOpen} onOpenChange={setIsFamiliaOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  id="nuevo-defecto-familia"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={isFamiliaOpen}
+                  className="w-full justify-between"
+                  disabled={isSubmitting || familiasDisponibles.length === 0}
+                >
+                  <span className="truncate">{familia || "Seleccione una familia"}</span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command className="**:data-[slot=command-input-wrapper]:h-11 [&_[cmdk-input]]:h-11 [&_[cmdk-item]]:py-3">
+                  <CommandInput placeholder="Buscar familia..." />
+                  <CommandList className="max-h-72">
+                    <CommandEmpty>No se encontraron familias.</CommandEmpty>
+                    <CommandGroup>
+                      {familiaNormalizada && !familiaExiste ? (
+                        <CommandItem
+                          value={familia}
+                          onSelect={() => {
+                            setFamilia(familia.trim())
+                            setIsFamiliaOpen(false)
+                          }}
+                        >
+                          <Check className="mr-2 h-4 w-4 opacity-100" />
+                          <span className="flex-1">Crear "{familia.trim()}"</span>
+                        </CommandItem>
+                      ) : null}
+                      {familiasDisponibles.map((familiaOption) => (
+                        <CommandItem
+                          key={familiaOption}
+                          value={familiaOption}
+                          onSelect={() => {
+                            setFamilia(familiaOption)
+                            setIsFamiliaOpen(false)
+                          }}
+                        >
+                          <Check className={`mr-2 h-4 w-4 ${familia === familiaOption ? "opacity-100" : "opacity-0"}`} />
+                          <span className="flex-1">{familiaOption}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             <Input
-              id="nuevo-defecto-familia"
               value={familia}
               onChange={(event) => setFamilia(event.target.value)}
-              placeholder="Ej. Impresión, sellado, empaque"
+              placeholder="Seleccione una familia o escriba una nueva"
               disabled={isSubmitting}
             />
+            <p className="text-xs text-muted-foreground">
+              {familiasDisponibles.length === 0
+                ? "No hay familias disponibles todavía en el catálogo. Capture una nueva."
+                : "Puede seleccionar una familia existente o escribir una nueva."}
+            </p>
           </div>
 
           <div className="space-y-2">
