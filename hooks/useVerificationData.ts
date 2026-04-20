@@ -83,9 +83,18 @@ export function useVerificationData(): HookResult {
 
         let valoresTecnicosData = null;
         if (resValores.ok) {
-            const valoresTecnicosArray = await resValores.json();
-            if (valoresTecnicosArray && valoresTecnicosArray.length > 0) {
-                valoresTecnicosData = valoresTecnicosArray[0];
+            const valoresTecnicosPayload = await resValores.json();
+            const rawValoresTecnicos = Array.isArray(valoresTecnicosPayload)
+                ? valoresTecnicosPayload[0]
+                : valoresTecnicosPayload;
+
+            if (rawValoresTecnicos) {
+                valoresTecnicosData = {
+                    piezasPorCaja: Number(rawValoresTecnicos.piezasPorCaja) || 0,
+                    wicketPorCaja: Number(rawValoresTecnicos.wicketPorCaja) || 0,
+                    cajasXtarima: Number(rawValoresTecnicos.cajasXtarima ?? rawValoresTecnicos.cajasXTarima) || 0,
+                    cantPerforaciones: Number(rawValoresTecnicos.cantPerforaciones) || 0,
+                };
             }
         }
 
