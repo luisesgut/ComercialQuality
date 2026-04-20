@@ -336,6 +336,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [finishError, setFinishError] = useState<string | null>(null);
     const [finishSuccess, setFinishSuccess] = useState<string | null>(null);
     const [isConsecutivoHelpOpen, setIsConsecutivoHelpOpen] = useState(false);
+    const [isDestinyUpdateHelpOpen, setIsDestinyUpdateHelpOpen] = useState(false);
     const [isPzasCajaHelpOpen, setIsPzasCajaHelpOpen] = useState(false);
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
@@ -2419,9 +2420,21 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
                                             <Label className="text-base font-medium">Caja Destiny</Label>
-                                            <p className="text-sm text-muted-foreground">
-                                                Seleccione la trazabilidad exacta a revisar en esta tarima.
-                                            </p>
+                                            <div className="mt-1 flex items-center gap-2">
+                                                <p className="text-sm text-muted-foreground">
+                                                    Seleccione la trazabilidad exacta a revisar en esta tarima.
+                                                </p>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 shrink-0"
+                                                    onClick={() => setIsDestinyUpdateHelpOpen(true)}
+                                                    aria-label="Ver actualización de Destiny"
+                                                >
+                                                    <HelpCircle className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
                                         <Button
                                             type="button"
@@ -3173,6 +3186,43 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 alt="Guia para consecutivo manual Destiny"
                                 className="max-h-[70vh] w-auto rounded-md border"
                             />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isDestinyUpdateHelpOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b pb-3">
+                            <h3 className="text-lg font-bold">Nueva actualización Destiny</h3>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsDestinyUpdateHelpOpen(false)}
+                            >
+                                &times;
+                            </Button>
+                        </div>
+                        <div className="space-y-3 text-sm leading-6 text-slate-700">
+                            <p>
+                                Ya no es necesario ingresar el consecutivo manual para Destiny.
+                            </p>
+                            <p>
+                                Identifica la máquina y el consecutivo, abre las etiquetas disponibles por máquina y selecciona la etiqueta para verificarla.
+                            </p>
+                        </div>
+                        <div className="flex justify-center">
+                            <img
+                                src="/guia-maquina.png"
+                                alt="Guia para identificar la maquina y el consecutivo Destiny"
+                                className="max-h-[55vh] w-auto max-w-full rounded-md border"
+                            />
+                        </div>
+                        <div className="flex justify-end pt-2">
+                            <Button onClick={() => setIsDestinyUpdateHelpOpen(false)}>
+                                Entendido
+                            </Button>
                         </div>
                     </div>
                 </div>

@@ -73,7 +73,11 @@ export function useVerificationData(): HookResult {
         // ------------------------------------------------------------------
         // PASO 3: GET de Valores Técnicos
         // ------------------------------------------------------------------
-        const urlValores = `${API_BASE_URL}/ValoresTecnicosIndividual/ByProducto/${claveProductoSearch}`;
+        const valoresEndpoint =
+            origen === 'BIOFLEX'
+                ? "ByProductoBfx"
+                : "ByProducto";
+        const urlValores = `${API_BASE_URL}/ValoresTecnicosIndividual/${valoresEndpoint}/${encodeURIComponent(claveProductoSearch)}`;
         let resValores: Response;
         try {
             resValores = await fetch(urlValores);
