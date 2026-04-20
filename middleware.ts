@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const MAINTENANCE_MODE = true // 👈 cambias esto a false cuando termines
+const MAINTENANCE_MODE = false
 
 export function middleware(request: NextRequest) {
   if (!MAINTENANCE_MODE) return NextResponse.next()
