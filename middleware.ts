@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server'
 
 const MAINTENANCE_MODE = false
 
+
 export function middleware(request: NextRequest) {
   if (!MAINTENANCE_MODE) return NextResponse.next()
 

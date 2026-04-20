@@ -9,7 +9,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install Dependencies lol
         run: |
           npm install -g pnpm pm2
           npx pnpm install
