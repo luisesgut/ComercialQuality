@@ -3,9 +3,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react"
 import { classifyApiError } from "@/lib/api-error"
 
-// =========================================================================
-// INTERFACES GLOBALES (Mantenerlas en un archivo separado como verification-types.ts es mejor)
-// =========================================================================
+
 
 // Interfaz de tu UI (Se mantiene igual)
 export interface Verification {

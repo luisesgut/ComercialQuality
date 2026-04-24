@@ -8,6 +8,7 @@ import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Shield, LogOut, User } from "lucide-react"
 import { UpdateAnnouncementModal } from "@/components/update-announcement-modal"
+import { ForcePasswordUpdateModal } from "@/components/force-password-update-modal"
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, isLoading } = useAuth()
@@ -70,6 +71,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="container mx-auto px-4 py-8">{children}</main>
+      <ForcePasswordUpdateModal />
       <UpdateAnnouncementModal />
     </div>
   )
