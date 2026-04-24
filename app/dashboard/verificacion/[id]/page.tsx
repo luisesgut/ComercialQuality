@@ -386,7 +386,18 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 // Si la verificación no existe o hay un error 4xx/5xx
                 throw new Error(`Error (${response.status}) al obtener detalles del dashboard.`);
             }
-            const data: DashboardData = await response.json();
+            const rawData = await response.json();
+            const printCard = String(
+                rawData?.printCard ??
+                rawData?.PrintCard ??
+                rawData?.printcard ??
+                rawData?.print_card ??
+                ""
+            ).trim();
+            const data: DashboardData = {
+                ...rawData,
+                printCard: printCard || null,
+            };
             setDashboardData(data);
         } catch (err: any) {
             if (!silent) {
@@ -2164,19 +2175,31 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     variant="outline"
                                     size="sm"
                                     className="w-full gap-2"
-                                    onClick={handleOpenPrintCard}
+                                    asChild
                                 >
-                                    <ExternalLink className="w-4 h-4" />
-                                    Ver PrintCard · {dashboardData.printCard}
+                                    <a
+                                        href={`${API_BASE_URL}/Printcard/${encodeURIComponent(dashboardData.printCard)}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                        Ver PrintCard · {dashboardData.printCard}
+                                    </a>
                                 </Button>
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     className="w-full gap-2"
-                                    onClick={handleOpenFichaTecnica}
+                                    asChild
                                 >
-                                    <ExternalLink className="w-4 h-4" />
-                                    Ver Ficha Tecnica · {dashboardData.printCard}
+                                    <a
+                                        href={`${API_BASE_URL}/Printcard/ficha/${encodeURIComponent(dashboardData.printCard)}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                        Ver Ficha Tecnica · {dashboardData.printCard}
+                                    </a>
                                 </Button>
                             </div>
                         )}

@@ -28,7 +28,17 @@ export function useVerificationData(): HookResult {
   };
 
   // --- LÓGICA COMPARTIDA: Pasos 2 y 3 (Orden y Valores Técnicos) ---
-  const fetchComplementaryData = async (etiquetaData: any, origen: 'BIOFLEX' | 'DESTINY' | 'QUALITY', tipoEmpaque?: string) => {
+  const fetchComplementaryData = async (
+    etiquetaData: any,
+    origen: 'BIOFLEX' | 'DESTINY' | 'QUALITY',
+    tipoEmpaque?: string,
+    valoresTecnicosFallback?: Partial<{
+        piezasPorCaja: number;
+        wicketPorCaja: number;
+        cajasXtarima: number;
+        cantPerforaciones: number;
+    }>
+  ) => {
     try {
         let ordenSearch = "";
         let claveProductoSearch = "";
@@ -100,6 +110,15 @@ export function useVerificationData(): HookResult {
                     cantPerforaciones: Number(rawValoresTecnicos.cantPerforaciones) || 0,
                 };
             }
+        }
+
+        if (!valoresTecnicosData && valoresTecnicosFallback) {
+            valoresTecnicosData = {
+                piezasPorCaja: Number(valoresTecnicosFallback.piezasPorCaja) || 0,
+                wicketPorCaja: Number(valoresTecnicosFallback.wicketPorCaja) || 0,
+                cajasXtarima: Number(valoresTecnicosFallback.cajasXtarima) || 0,
+                cantPerforaciones: Number(valoresTecnicosFallback.cantPerforaciones) || 0,
+            };
         }
 
         if (!valoresTecnicosData) {
@@ -254,24 +273,42 @@ export function useVerificationData(): HookResult {
         }
 
         const data = await response.json();
-        if (!Array.isArray(data) || data.length === 0) {
+        const pedidos = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.pedidos)
+              ? data.pedidos
+              : [];
+        const datosEtiqueta = !Array.isArray(data) && data?.datosEtiqueta ? data.datosEtiqueta : null;
+
+        if (pedidos.length === 0) {
             throw classifyApiError(new Error("Sin resultados"), 404, `Lot ${po2} / Item ${itemNo}`);
         }
 
-        const first = data[0];
+        const first = pedidos[0];
         const etiquetaData = {
           id: Number(first.id) || 0,
           area: "QUALITY",
           claveProducto: first.clave || "",
-          nombreProducto: first.producto || "",
+          nombreProducto: datosEtiqueta?.nombreProducto || first.producto || "",
           orden: Number(first.pedido) || 0,
           trazabilidad: String(first.pedido || ""),
-          printCard: null,
+          printCard: String(datosEtiqueta?.printCard ?? first.printCard ?? "").trim() || null,
           uom: "",
           maquina: "",
         };
 
-        await fetchComplementaryData(etiquetaData, 'QUALITY');
+        await fetchComplementaryData(
+            etiquetaData,
+            'QUALITY',
+            datosEtiqueta?.tipoEmpaque,
+            datosEtiqueta
+                ? {
+                    piezasPorCaja: Number(datosEtiqueta.piezasTotalePorCaja) || 0,
+                    wicketPorCaja: Number(first.wicket ?? datosEtiqueta.wicketPorCaja) || 0,
+                    cantPerforaciones: Number(datosEtiqueta.cantPerforaciones) || 0,
+                }
+                : undefined
+        );
 
     } catch (err: any) {
         console.error("Error Quality:", err);

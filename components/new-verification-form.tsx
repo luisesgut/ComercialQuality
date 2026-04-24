@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Iconos
-import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCircle } from "lucide-react"
+import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCircle, ExternalLink } from "lucide-react"
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -744,6 +744,30 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
             <div className="space-y-1">
               <Label className="text-muted-foreground text-xs uppercase">Print Card</Label>
               <p className="font-semibold">{etiqueta.printCard || "N/A"}</p>
+              {etiqueta.printCard && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={`${API_BASE_URL}/Printcard/${encodeURIComponent(etiqueta.printCard)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink className="w-4 h-4 mr-1.5" />
+                      PrintCard
+                    </a>
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={`${API_BASE_URL}/Printcard/ficha/${encodeURIComponent(etiqueta.printCard)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink className="w-4 h-4 mr-1.5" />
+                      Ficha tecnica
+                    </a>
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1">
