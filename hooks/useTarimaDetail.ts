@@ -12,6 +12,12 @@ export interface TarimaCaja {
   tieneDefectos?: boolean
   comentarios?: string | null
   horaEscaneo?: string
+  usuarioValidador?: string | null
+  usuario?: string | null
+  Usuario?: string | null
+  usuarioRegistro?: string | null
+  usuarioAgrego?: string | null
+  agregadoPor?: string | null
 }
 
 export interface TarimaDetalle {

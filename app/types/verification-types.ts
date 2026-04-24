@@ -62,6 +62,80 @@ export interface DashboardData {
     piezasPorCaja?: number;
 }
 
+export interface VerificationLookupDefecto {
+  detalle: string;
+  familia: string;
+  cantidad: number;
+  comentario: string | null;
+}
+
+export interface VerificationLookupCaja {
+  detalleId: number;
+  identificador: string;
+  cantidad: number;
+  piezasAuditadas: number;
+  tieneDefectos: boolean;
+  comentarios: string | null;
+  horaEscaneo: string;
+  usuarioValidador?: string | null;
+  defectos: VerificationLookupDefecto[];
+  fotos: string[];
+}
+
+export interface VerificationLookupTarimaColaborador {
+  usuario?: string | null;
+  nombre?: string | null;
+  cajasEscaneadas?: number | null;
+  cajasRegistradas?: number | null;
+}
+
+export interface VerificationLookupTarimaAbierta {
+  tarimaId: number;
+  numeroTarima: number;
+  cajasLlevamos?: number;
+  cajasEscaneadas?: number;
+  meta?: number;
+  cajasMeta?: number;
+  usuarioCreo?: string | null;
+  usuario?: string | null;
+  usuarioReviso?: string | null;
+  usuarioRevision?: string | null;
+  revisadoPor?: string | null;
+  revisor?: string | null;
+  fechaInicio?: string | null;
+  fechaCierre?: string | null;
+  estado?: string | null;
+  colaboradores?: VerificationLookupTarimaColaborador[] | null;
+  cajas?: VerificationLookupCaja[];
+}
+
+export interface VerificationLookupTarimaTerminada {
+  tarimaId: number;
+  numeroTarima: number;
+  cajasRegistradas: number;
+  usuario: string;
+  usuarioReviso?: string | null;
+  usuarioRevision?: string | null;
+  revisadoPor?: string | null;
+  revisor?: string | null;
+  usuarioCerro?: string | null;
+  colaboradores?: VerificationLookupTarimaColaborador[] | null;
+  fechaCierre: string;
+  estatusCierre: string | null;
+  comentarioCierre: string | null;
+  cajas: VerificationLookupCaja[];
+}
+
+export interface VerificationLookupResponse {
+  existe: boolean;
+  loteResuelto: string | null;
+  verificacionId: number | null;
+  terminada: boolean;
+  dashboard: DashboardData | null;
+  tarimasTerminadas: VerificationLookupTarimaTerminada[] | null;
+  tarimasAbiertas: VerificationLookupTarimaAbierta[] | null;
+}
+
 export interface DestinyEtiquetaData {
   id: number;
   idLote: number;
