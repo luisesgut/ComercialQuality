@@ -1043,6 +1043,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         selectedTarima && tarimaActivaDetalle?.tarimaId === selectedTarima.tarimaId
             ? tarimaActivaDetalle
             : null;
+    const activeEvidenceDetalleId = evidenceTargetId ?? lastDetalleId;
+    const canActiveEvidenceTargetReceivePhotos =
+        typeof activeEvidenceDetalleId === "number" ? cajaCanReceiveEvidence(activeEvidenceDetalleId) : false;
     const destinyTotals = (destinyCajasDisponibles?.maquinas ?? []).reduce(
         (acc, maquina) => {
             for (const caja of maquina.cajas ?? []) {
@@ -1056,6 +1059,25 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         },
         { pending: 0, validated: 0 }
     );
+
+    function findCajaByDetalleId(detalleId: number) {
+        const activeCaja = selectedTarimaDetalle?.cajas?.find((caja) => caja.detalleId === detalleId);
+        if (activeCaja) return activeCaja;
+
+        for (const tarima of tarimasTerminadas) {
+            const finishedCaja = tarima.cajas?.find((caja) => caja.detalleId === detalleId);
+            if (finishedCaja) return finishedCaja;
+        }
+
+        return null;
+    }
+
+    function cajaCanReceiveEvidence(detalleId: number) {
+        const caja = findCajaByDetalleId(detalleId);
+        if (!caja) return true;
+
+        return caja.tieneDefectos || (Array.isArray(caja.defectos) && caja.defectos.length > 0);
+    }
 
     const renderDestinyCajaButton = (caja: DestinyCajaDisponible) => {
         const isSelected = selectedDestinyCaja?.trazabilidad === caja.trazabilidad;
@@ -1490,6 +1512,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     };
 
     const openEvidenceForCaja = (detalleId: number) => {
+        if (!cajaCanReceiveEvidence(detalleId)) {
+            setEvidenceError("Solo se pueden agregar fotos a cajas con defectos registrados.");
+            return;
+        }
+
         setEvidenceTargetId(detalleId);
         setEvidenceError(null);
         setEvidenceSuccess(null);
@@ -1775,6 +1802,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         const activeDetalleId = evidenceTargetId ?? lastDetalleId;
         if (!activeDetalleId) {
             setEvidenceError("No se encontro el detalle para asociar la evidencia.");
+            return;
+        }
+
+        if (!cajaCanReceiveEvidence(activeDetalleId)) {
+            setEvidenceError("Solo se pueden agregar fotos a cajas con defectos registrados.");
             return;
         }
 
@@ -2409,7 +2441,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         )}
                         {!isTarimaActivaDetalleLoading && selectedTarimaDetalle?.cajas?.length ? (
                             <div className="max-h-96 overflow-y-auto pr-1 space-y-2">
-                                {selectedTarimaDetalle.cajas.map((caja) => (
+                                {selectedTarimaDetalle.cajas.map((caja) => {
+                                    const canManageCajaEvidence = cajaCanReceiveEvidence(caja.detalleId);
+                                    return (
                                     <div key={caja.detalleId} className="rounded-md border border-border px-3 py-2.5 bg-card">
                                         <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0">
@@ -2435,8 +2469,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 <button
                                                     type="button"
                                                     onClick={() => openEvidenceForCaja(caja.detalleId)}
-                                                    className="flex items-center gap-1 text-xs text-primary hover:text-primary px-2 py-1 rounded hover:bg-primary/10"
-                                                    title="Gestionar fotos"
+                                                    disabled={!canManageCajaEvidence}
+                                                    className="flex items-center gap-1 text-xs text-primary hover:text-primary px-2 py-1 rounded hover:bg-primary/10 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
+                                                    title={canManageCajaEvidence ? "Gestionar fotos" : "Solo se pueden agregar fotos a cajas con defectos"}
                                                 >
                                                     <Camera className="w-3.5 h-3.5" />
                                                     Fotos
@@ -2471,9 +2506,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 </div>
                                             </details>
                                         )}
-                                        {renderEvidenceGallery(caja.detalleId, caja.fotos, { editable: true, showManageButton: false })}
+                                        {renderEvidenceGallery(caja.detalleId, caja.fotos, { editable: canManageCajaEvidence, showManageButton: false })}
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : null}
                     </CardContent>
@@ -3506,19 +3542,24 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
                         <div className="rounded-xl border bg-gradient-to-r from-slate-50 to-blue-50/60 p-4">
                             <p className="text-sm text-muted-foreground">
-                                Detalle #{evidenceTargetId ?? lastDetalleId}. En tarimas activas puede agregar o eliminar fotos asociadas a esta caja.
+                                Detalle #{activeEvidenceDetalleId}. En tarimas activas puede agregar o eliminar fotos asociadas a esta caja.
                             </p>
+                            {!canActiveEvidenceTargetReceivePhotos && (
+                                <p className="mt-2 text-sm font-medium text-destructive">
+                                    Esta caja no tiene defectos registrados. No se pueden agregar fotos.
+                                </p>
+                            )}
                         </div>
 
                         <form onSubmit={handleEvidenceSubmit} className="space-y-4">
-                            {typeof (evidenceTargetId ?? lastDetalleId) === "number" && (
+                            {typeof activeEvidenceDetalleId === "number" && (
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <p className="text-sm font-semibold text-card-foreground">Galeria actual</p>
                                             <p className="text-xs text-muted-foreground">Fotos ya asociadas a esta caja.</p>
                                         </div>
-                                        {isEvidenceListLoadingByDetalleId[evidenceTargetId ?? lastDetalleId ?? 0] && (
+                                        {isEvidenceListLoadingByDetalleId[activeEvidenceDetalleId] && (
                                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                                 Actualizando...
@@ -3526,15 +3567,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         )}
                                     </div>
                                     {renderEvidenceGallery(
-                                        evidenceTargetId ?? lastDetalleId ?? 0,
-                                        getCajaFallbackFotos(evidenceTargetId ?? lastDetalleId ?? 0),
-                                        { editable: true, showManageButton: false }
+                                        activeEvidenceDetalleId,
+                                        getCajaFallbackFotos(activeEvidenceDetalleId),
+                                        { editable: canActiveEvidenceTargetReceivePhotos, showManageButton: false }
                                     )}
                                     {!getCajaEvidencias(
-                                        evidenceTargetId ?? lastDetalleId ?? 0,
-                                        getCajaFallbackFotos(evidenceTargetId ?? lastDetalleId ?? 0)
+                                        activeEvidenceDetalleId,
+                                        getCajaFallbackFotos(activeEvidenceDetalleId)
                                     ).length &&
-                                        !isEvidenceListLoadingByDetalleId[evidenceTargetId ?? lastDetalleId ?? 0] && (
+                                        !isEvidenceListLoadingByDetalleId[activeEvidenceDetalleId] && (
                                         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground text-center">
                                             Esta caja todavia no tiene fotos.
                                         </div>
@@ -3552,7 +3593,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     capture="environment"
                                     multiple
                                     onChange={handleEvidenceFileChange}
-                                    disabled={isEvidenceUploading || deletingEvidenceId !== null}
+                                    disabled={isEvidenceUploading || deletingEvidenceId !== null || !canActiveEvidenceTargetReceivePhotos}
                                 />
                                 {selectedEvidenceFiles.length > 0 && (
                                     <div className="space-y-2">
@@ -3607,7 +3648,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <Button
                                     type="submit"
                                     className="flex-1 h-14 text-base"
-                                    disabled={isEvidenceUploading || deletingEvidenceId !== null || !selectedEvidenceFiles.length}
+                                    disabled={isEvidenceUploading || deletingEvidenceId !== null || !selectedEvidenceFiles.length || !canActiveEvidenceTargetReceivePhotos}
                                 >
                                     {isEvidenceUploading ? (
                                         <>

@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useState } from "react"
+import { FormEvent, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import type {
   DashboardData,
@@ -19,11 +19,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock, ExternalLink, HelpCircle, Layers, Loader2, Package, Search, Truck } from "lucide-react"
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock, ExternalLink, Grid, HelpCircle, Layers, Loader2, Package, QrCode, Search, Truck } from "lucide-react"
 
 const API_BASE_URL = "http://172.16.10.31/api"
 
 type ConsultationMode = "bioflex" | "destiny" | "quality"
+type ScanTarget = "bioflexCode" | "destinyItemNo" | "qualityLot" | "qualityItem"
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Sin registro"
@@ -516,12 +517,154 @@ export function VerificationConsultation() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<VerificationLookupResponse | null>(null)
   const [helpImage, setHelpImage] = useState<null | { title: string; src: string; alt: string }>(null)
+  const [isScannerActive, setIsScannerActive] = useState(false)
+  const [scannerError, setScannerError] = useState<string | null>(null)
+  const [isVideoReady, setIsVideoReady] = useState(false)
+  const [scanTarget, setScanTarget] = useState<ScanTarget | null>(null)
+  const [scannerFormats, setScannerFormats] = useState<string[]>(["qr_code"])
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const scannerStreamRef = useRef<MediaStream | null>(null)
+  const scanLoopRef = useRef<number | null>(null)
 
   const handleModeChange = (nextMode: ConsultationMode) => {
     setMode(nextMode)
     setError(null)
     setResult(null)
+    stopScanner()
   }
+
+  const stopScanner = () => {
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current)
+      scanLoopRef.current = null
+    }
+    if (scannerStreamRef.current) {
+      scannerStreamRef.current.getTracks().forEach((track) => track.stop())
+      scannerStreamRef.current = null
+    }
+    setIsScannerActive(false)
+    setIsVideoReady(false)
+    setScanTarget(null)
+  }
+
+  const startScanner = async (target: ScanTarget, formats: string[]) => {
+    setScannerError(null)
+    setIsVideoReady(false)
+    if (isScannerActive) {
+      stopScanner()
+    }
+
+    const BarcodeDetectorRef: any = (window as any).BarcodeDetector
+    if (!BarcodeDetectorRef) {
+      setScannerError("Tu navegador no soporta la detección de códigos nativa. Usa Chrome en Android/Desktop.")
+      return
+    }
+
+    try {
+      let supportedFormats = formats
+      if (typeof BarcodeDetectorRef.getSupportedFormats === "function") {
+        const availableFormats = await BarcodeDetectorRef.getSupportedFormats()
+        supportedFormats = formats.filter((format) => availableFormats.includes(format))
+      }
+
+      if (!supportedFormats.length) {
+        setScannerError("Tu navegador no soporta los formatos de código requeridos.")
+        return
+      }
+
+      setScanTarget(target)
+      setScannerFormats(supportedFormats)
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      })
+
+      scannerStreamRef.current = stream
+      setIsScannerActive(true)
+    } catch (scannerStartError: any) {
+      console.error("Error iniciando scanner:", scannerStartError)
+      setScannerError(scannerStartError?.message || "No se pudo acceder a la cámara.")
+      stopScanner()
+    }
+  }
+
+  useEffect(() => {
+    if (!isScannerActive || !scannerStreamRef.current || !videoRef.current) return
+
+    const video = videoRef.current
+    const stream = scannerStreamRef.current
+    video.srcObject = stream
+
+    const BarcodeDetectorRef: any = (window as any).BarcodeDetector
+    const detector = new BarcodeDetectorRef({ formats: scannerFormats })
+
+    const onCanPlay = async () => {
+      try {
+        await video.play()
+        setIsVideoReady(true)
+
+        const scanLoop = async () => {
+          if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return
+
+          try {
+            const barcodes = await detector.detect(video)
+            if (barcodes.length > 0) {
+              const codeValue = barcodes[0].rawValue
+
+              if (scanTarget === "destinyItemNo") {
+                setDestinyItemNo(codeValue)
+                stopScanner()
+                return
+              }
+
+              if (scanTarget === "qualityLot") {
+                if (/^\d{6}$/.test(codeValue)) {
+                  setQualityPO2(codeValue)
+                  stopScanner()
+                  return
+                }
+                setScannerError("QR inválido para Lot Number. Debe ser numérico de 6 dígitos.")
+              } else if (scanTarget === "qualityItem") {
+                if (/^P/i.test(codeValue)) {
+                  setQualityItemNo(codeValue)
+                  stopScanner()
+                  return
+                }
+                setScannerError("QR inválido para Item Number. Debe iniciar con P.")
+              } else {
+                setCodigoInsumo(codeValue)
+                stopScanner()
+                return
+              }
+            }
+          } catch {
+            // Ignora errores puntuales de detección para mantener el escaneo activo.
+          }
+
+          scanLoopRef.current = requestAnimationFrame(scanLoop)
+        }
+
+        scanLoopRef.current = requestAnimationFrame(scanLoop)
+      } catch (videoError) {
+        console.error("Error al reproducir video:", videoError)
+      }
+    }
+
+    video.addEventListener("canplay", onCanPlay, { once: true })
+
+    return () => {
+      video.removeEventListener("canplay", onCanPlay)
+      if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current)
+    }
+  }, [isScannerActive, scanTarget, scannerFormats])
+
+  useEffect(() => {
+    return () => stopScanner()
+  }, [])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -647,6 +790,53 @@ export function VerificationConsultation() {
     </div>
   ) : null
 
+  const renderScannerControls = (
+    target: ScanTarget,
+    formats: string[],
+    idleLabel: string,
+    readyLabel: string,
+  ) => (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        onClick={() => {
+          if (isScannerActive && scanTarget === target) {
+            stopScanner()
+          } else {
+            startScanner(target, formats)
+          }
+        }}
+        disabled={isLoading}
+      >
+        <QrCode className="w-5 h-5 mr-2" />
+        {isScannerActive && scanTarget === target ? "Detener escaneo" : idleLabel}
+      </Button>
+      {scannerError && scanTarget === target && (
+        <p className="text-sm text-destructive flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          {scannerError}
+        </p>
+      )}
+      {isScannerActive && scanTarget === target && (
+        <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
+          <video
+            ref={videoRef}
+            className="w-full rounded-md aspect-video object-cover"
+            autoPlay
+            playsInline
+            muted
+            style={{ backgroundColor: "#000" }}
+          />
+          <p className="text-xs text-muted-foreground">
+            {isVideoReady ? readyLabel : "Cargando cámara..."}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-center gap-4">
@@ -655,44 +845,92 @@ export function VerificationConsultation() {
         </Button>
         <div>
           <h2 className="text-2xl font-bold text-foreground">Consultar verificacion</h2>
-          <p className="text-muted-foreground">Busque una verificacion usando los mismos datos base del alta.</p>
+          <p className="text-muted-foreground">Elija el flujo y capture los mismos datos del alta.</p>
         </div>
       </div>
 
-      <Card className="border-0 shadow-lg bg-card">
-        <CardHeader>
-          <CardTitle>Busqueda</CardTitle>
-          <CardDescription>Seleccione el cliente y capture los datos requeridos por el backend.</CardDescription>
+      <Card className="border-0 shadow-md bg-card">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Grid className="w-4 h-4" />
+            Seleccione el tipo de verificación
+          </div>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Button type="button" variant={mode === "bioflex" ? "default" : "outline"} onClick={() => handleModeChange("bioflex")}>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Button type="button" variant={mode === "bioflex" ? "default" : "outline"} onClick={() => handleModeChange("bioflex")} className="w-full">
               Bioflex
             </Button>
-            <Button type="button" variant={mode === "destiny" ? "default" : "outline"} onClick={() => handleModeChange("destiny")}>
+            <Button type="button" variant={mode === "destiny" ? "default" : "outline"} onClick={() => handleModeChange("destiny")} className="w-full">
               Destiny
             </Button>
-            <Button type="button" variant={mode === "quality" ? "default" : "outline"} onClick={() => handleModeChange("quality")}>
+            <Button type="button" variant={mode === "quality" ? "default" : "outline"} onClick={() => handleModeChange("quality")} className="w-full">
               Quality
             </Button>
           </div>
+        </CardContent>
+      </Card>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === "bioflex" && (
-              <div className="space-y-2">
-                <Label htmlFor="bioflex-codigo-insumo">Codigo de insumo</Label>
-                <Input
-                  id="bioflex-codigo-insumo"
-                  value={codigoInsumo}
-                  onChange={(event) => setCodigoInsumo(event.target.value)}
-                  placeholder="Ej. INS-001"
-                  disabled={isLoading}
-                />
+      <div className="mx-auto max-w-2xl">
+        {mode === "bioflex" && (
+          <Card className="border-0 shadow-xl bg-card">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                <QrCode className="w-8 h-8 text-primary" />
               </div>
-            )}
+              <CardTitle className="text-xl text-card-foreground">Bioflex</CardTitle>
+              <CardDescription>Ingresa el código o escanea el QR.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="bioflex-codigo-insumo" className="text-card-foreground">
+                    Código de Trazabilidad
+                  </Label>
+                  <Input
+                    id="bioflex-codigo-insumo"
+                    inputMode="numeric"
+                    value={codigoInsumo}
+                    onChange={(event) => setCodigoInsumo(event.target.value)}
+                    placeholder="Ej: 604025132030"
+                    className="pl-4 h-12 text-lg text-center font-mono"
+                    disabled={isLoading}
+                    required
+                  />
+                  {renderScannerControls(
+                    "bioflexCode",
+                    ["qr_code"],
+                    "Escanear QR con cámara",
+                    "Apunte al código QR para capturar la trazabilidad.",
+                  )}
+                </div>
 
-            {mode === "destiny" && (
-              <div className="grid gap-4 sm:grid-cols-2">
+                <Button type="submit" className="w-full h-12 text-lg" disabled={isLoading || !codigoInsumo.trim()}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Consultando...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-5 h-5 mr-2" />
+                      Consultar verificacion
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {mode === "destiny" && (
+          <Card className="border-0 shadow-lg bg-card">
+            <CardHeader>
+              <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
+              <CardDescription>ItemNo e InventoryLot</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <Label htmlFor="destiny-item-no">ItemNo</Label>
@@ -716,10 +954,17 @@ export function VerificationConsultation() {
                     id="destiny-item-no"
                     value={destinyItemNo}
                     onChange={(event) => setDestinyItemNo(event.target.value)}
-                    placeholder="Ej. BFX-001"
+                    placeholder="Ej. 61953-11"
                     disabled={isLoading}
                   />
+                  {renderScannerControls(
+                    "destinyItemNo",
+                    ["code_128", "code_39", "code_93", "ean_13", "ean_8", "itf", "upc_a", "upc_e", "codabar", "qr_code"],
+                    "Escanear código de barras",
+                    "Apunte al código de barras para capturar el ItemNo.",
+                  )}
                 </div>
+
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <Label htmlFor="destiny-inventory-lot">InventoryLot</Label>
@@ -741,20 +986,33 @@ export function VerificationConsultation() {
                   </div>
                   <Input
                     id="destiny-inventory-lot"
+                    inputMode="numeric"
                     value={destinyInventoryLot}
                     onChange={(event) => setDestinyInventoryLot(event.target.value)}
-                    placeholder="Ej. LOT-2024"
+                    placeholder="Ej. 13915"
                     disabled={isLoading}
                   />
                 </div>
-              </div>
-            )}
 
-            {mode === "quality" && (
-              <div className="grid gap-4 sm:grid-cols-2">
+                <Button type="submit" className="w-full h-12 text-lg" disabled={isLoading}>
+                  {isLoading ? "Consultando..." : "Consultar verificacion Destiny"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {mode === "quality" && (
+          <Card className="border-0 shadow-lg bg-card">
+            <CardHeader>
+              <CardTitle className="text-xl text-card-foreground">Datos Quality</CardTitle>
+              <CardDescription>Ingrese Lot Number e Item Number para buscar datos.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Label htmlFor="quality-po2">U_PO2</Label>
+                    <Label htmlFor="quality-po2">Lot Number</Label>
                     <Button
                       type="button"
                       variant="ghost"
@@ -773,15 +1031,23 @@ export function VerificationConsultation() {
                   </div>
                   <Input
                     id="quality-po2"
+                    inputMode="numeric"
                     value={qualityPO2}
                     onChange={(event) => setQualityPO2(event.target.value)}
-                    placeholder="Ej. 30228"
+                    placeholder="Ej. 184335"
                     disabled={isLoading}
                   />
+                  {renderScannerControls(
+                    "qualityLot",
+                    ["qr_code"],
+                    "Escanear QR con cámara",
+                    "Apunte al QR para capturar el Lot Number (6 dígitos).",
+                  )}
                 </div>
+
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Label htmlFor="quality-item-no">U_ItemNo</Label>
+                    <Label htmlFor="quality-item-no">Item Number</Label>
                     <Button
                       type="button"
                       variant="ghost"
@@ -802,29 +1068,25 @@ export function VerificationConsultation() {
                     id="quality-item-no"
                     value={qualityItemNo}
                     onChange={(event) => setQualityItemNo(event.target.value)}
-                    placeholder="Ej. ITEM-001"
+                    placeholder="Ej. P101212"
                     disabled={isLoading}
                   />
+                  {renderScannerControls(
+                    "qualityItem",
+                    ["qr_code"],
+                    "Escanear QR con cámara",
+                    "Apunte al QR para capturar el Item Number (inicia con P).",
+                  )}
                 </div>
-              </div>
-            )}
 
-            <Button type="submit" className="w-full sm:w-auto" size="lg" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Consultando...
-                </>
-              ) : (
-                <>
-                  <Search className="h-4 w-4" />
-                  Consultar verificacion
-                </>
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+                <Button type="submit" className="w-full h-12 text-lg" disabled={isLoading}>
+                  {isLoading ? "Consultando..." : "Consultar verificacion Quality"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {error && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
