@@ -54,6 +54,12 @@ interface TarimaActivaCaja {
     tieneDefectos: boolean;
     comentarios: string | null;
     horaEscaneo: string;
+    usuarioValidador?: string | null;
+    usuario?: string | null;
+    Usuario?: string | null;
+    usuarioRegistro?: string | null;
+    usuarioAgrego?: string | null;
+    agregadoPor?: string | null;
     defectos: TarimaActivaDefecto[];
     fotos?: string[];
 }
@@ -99,6 +105,8 @@ interface DestinyCajasDisponiblesResponse {
     maquinas: DestinyMaquinaDisponible[];
 }
 
+type DestinyStatusFilter = "all" | "pending" | "validated";
+
 interface RegistrarEscaneoResponse {
     requiereConfirmacion?: boolean;
     detalleIdDuplicado?: number;
@@ -127,6 +135,7 @@ interface TarimaTerminadaCaja {
     tieneDefectos: boolean;
     comentarios: string | null;
     horaEscaneo: string;
+    usuarioValidador?: string | null;
     defectos?: TarimaTerminadaDefecto[];
     fotos?: string[];
 }
@@ -253,6 +262,26 @@ const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
     return status || "Sin estatus";
 };
 
+const getCajaUsuarioLabel = (caja: TarimaActivaCaja) =>
+    caja.usuarioValidador?.trim() ||
+    caja.usuario?.trim() ||
+    caja.Usuario?.trim() ||
+    caja.usuarioRegistro?.trim() ||
+    caja.usuarioAgrego?.trim() ||
+    caja.agregadoPor?.trim() ||
+    null;
+
+const getCajaTerminadaUsuarioLabel = (caja: TarimaTerminadaCaja) =>
+    caja.usuarioValidador?.trim() || null;
+
+const matchesDestinyCajaQuery = (caja: DestinyCajaDisponible, query: string) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return true;
+    const consecutivo = caja.trazabilidad.slice(-3);
+    const haystack = `${caja.trazabilidad} ${consecutivo}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+};
+
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
     const { user } = useAuth();
@@ -291,6 +320,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [destinyCajasError, setDestinyCajasError] = useState<string | null>(null);
     const [selectedDestinyCaja, setSelectedDestinyCaja] = useState<DestinyCajaDisponible | null>(null);
     const [destinySearchByMachine, setDestinySearchByMachine] = useState<Record<number, string>>({});
+    const [destinyStatusFilter, setDestinyStatusFilter] = useState<DestinyStatusFilter>("all");
     const [openMaquinaAccordion, setOpenMaquinaAccordion] = useState<string>("");
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
@@ -671,6 +701,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setDestinyCajasError(null);
             setSelectedDestinyCaja(null);
             setDestinySearchByMachine({});
+            setDestinyStatusFilter("all");
             return;
         }
 
@@ -1012,6 +1043,76 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         selectedTarima && tarimaActivaDetalle?.tarimaId === selectedTarima.tarimaId
             ? tarimaActivaDetalle
             : null;
+    const destinyTotals = (destinyCajasDisponibles?.maquinas ?? []).reduce(
+        (acc, maquina) => {
+            for (const caja of maquina.cajas ?? []) {
+                if (caja.yaRevisada) {
+                    acc.validated += 1;
+                } else {
+                    acc.pending += 1;
+                }
+            }
+            return acc;
+        },
+        { pending: 0, validated: 0 }
+    );
+
+    const renderDestinyCajaButton = (caja: DestinyCajaDisponible) => {
+        const isSelected = selectedDestinyCaja?.trazabilidad === caja.trazabilidad;
+        const consecutivo = caja.trazabilidad.slice(-3);
+
+        return (
+            <button
+                key={caja.trazabilidad}
+                type="button"
+                onClick={() => {
+                    if (caja.yaRevisada || isRegisteringScan) return;
+                    setSelectedDestinyCaja(caja);
+                    setTrazabilidadInput(caja.trazabilidad);
+                    setPiezasAuditadasInput(String(caja.piezas));
+                    setRegisterError(null);
+                    setOpenMaquinaAccordion("");
+                }}
+                disabled={caja.yaRevisada || isRegisteringScan}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                    caja.yaRevisada
+                        ? "cursor-not-allowed border-emerald-200 bg-emerald-50/70 opacity-80"
+                        : isSelected
+                          ? "border-primary bg-primary/10 shadow-sm"
+                          : "border-border bg-background hover:border-primary/40"
+                }`}
+            >
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Consecutivo
+                        </p>
+                        <p className="mt-1 text-3xl font-black leading-none text-foreground">
+                            {consecutivo}
+                        </p>
+                        <p className="mt-3 text-xs font-medium text-muted-foreground">
+                            Trazabilidad
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-foreground break-all">
+                            {caja.trazabilidad}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                            {caja.piezas} piezas
+                        </p>
+                    </div>
+                    {caja.yaRevisada ? (
+                        <Badge className="border border-emerald-200 bg-emerald-100 text-emerald-700">
+                            Validada
+                        </Badge>
+                    ) : isSelected ? (
+                        <Badge>Seleccionada</Badge>
+                    ) : (
+                        <Badge variant="outline">Pendiente</Badge>
+                    )}
+                </div>
+            </button>
+        );
+    };
 
     const resolveEvidenceUrl = (foto: string) => {
         if (!foto) return "";
@@ -2319,6 +2420,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 <p className="text-[11px] text-muted-foreground">
                                                     {new Date(caja.horaEscaneo).toLocaleString()}
                                                 </p>
+                                                {getCajaUsuarioLabel(caja) && (
+                                                    <p className="text-[11px] text-muted-foreground">
+                                                        Agregada por: {getCajaUsuarioLabel(caja)}
+                                                    </p>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">
                                                 {caja.tieneDefectos && (
@@ -2452,6 +2558,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <Badge variant="secondary">Orden {destinyCajasDisponibles.orden}</Badge>
                                                 <Badge variant="outline">{destinyCajasDisponibles.totalCajas} cajas</Badge>
+                                                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                                    {destinyTotals.pending} pendientes
+                                                </Badge>
+                                                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                                                    {destinyTotals.validated} validadas
+                                                </Badge>
                                             </div>
                                             <p className="mt-2 text-sm font-medium text-foreground">
                                                 {destinyCajasDisponibles.nombreProducto}
@@ -2468,8 +2580,49 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             Cargando cajas disponibles...
                                         </div>
                                     ) : destinyCajasDisponibles?.maquinas?.length ? (
-                                        <Accordion type="single" collapsible className="w-full rounded-xl border border-border px-4" value={openMaquinaAccordion} onValueChange={setOpenMaquinaAccordion}>
+                                        <>
+                                            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 p-3">
+                                                <span className="text-sm font-medium text-foreground">Filtro:</span>
+                                                <Button
+                                                    type="button"
+                                                    variant={destinyStatusFilter === "all" ? "default" : "outline"}
+                                                    size="sm"
+                                                    onClick={() => setDestinyStatusFilter("all")}
+                                                    disabled={isRegisteringScan}
+                                                >
+                                                    Todas
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant={destinyStatusFilter === "pending" ? "default" : "outline"}
+                                                    size="sm"
+                                                    onClick={() => setDestinyStatusFilter("pending")}
+                                                    disabled={isRegisteringScan}
+                                                >
+                                                    Pendientes
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant={destinyStatusFilter === "validated" ? "default" : "outline"}
+                                                    size="sm"
+                                                    onClick={() => setDestinyStatusFilter("validated")}
+                                                    disabled={isRegisteringScan}
+                                                >
+                                                    Validadas
+                                                </Button>
+                                            </div>
+                                            <Accordion type="single" collapsible className="w-full rounded-xl border border-border px-4" value={openMaquinaAccordion} onValueChange={setOpenMaquinaAccordion}>
                                             {destinyCajasDisponibles.maquinas.map((maquina) => {
+                                                const machineQuery = destinySearchByMachine[maquina.noMaquina] ?? "";
+                                                const filteredCajas = maquina.cajas.filter((caja) =>
+                                                    matchesDestinyCajaQuery(caja, machineQuery)
+                                                );
+                                                const pendingCajas = filteredCajas.filter((caja) => !caja.yaRevisada);
+                                                const validatedCajas = filteredCajas.filter((caja) => caja.yaRevisada);
+                                                const visiblePendingCajas =
+                                                    destinyStatusFilter === "validated" ? [] : pendingCajas;
+                                                const visibleValidatedCajas =
+                                                    destinyStatusFilter === "pending" ? [] : validatedCajas;
                                                 const tieneSeleccionada = selectedDestinyCaja
                                                     ? maquina.cajas.some(c => c.trazabilidad === selectedDestinyCaja.trazabilidad)
                                                     : false;
@@ -2480,6 +2633,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                             <span className="font-semibold">Máquina {maquina.noMaquina}</span>
                                                             <Badge variant="outline">{maquina.totalCajas} cajas</Badge>
                                                             <Badge variant="secondary">{maquina.cajasRevisadas} revisadas</Badge>
+                                                            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                                                {pendingCajas.length} pendientes
+                                                            </Badge>
+                                                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                                                                {validatedCajas.length} validadas
+                                                            </Badge>
                                                             {tieneSeleccionada && (
                                                                 <Badge className="bg-primary/15 text-primary border-primary/30 border">Seleccionada</Badge>
                                                             )}
@@ -2490,7 +2649,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                             <div className="relative sticky top-0 z-10 bg-background pb-1">
                                                                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                                                 <Input
-                                                                    value={destinySearchByMachine[maquina.noMaquina] ?? ""}
+                                                                    value={machineQuery}
                                                                     onChange={(e) =>
                                                                         setDestinySearchByMachine((current) => ({
                                                                             ...current,
@@ -2502,7 +2661,49 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                     disabled={isRegisteringScan}
                                                                 />
                                                             </div>
-                                                            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                                            {visiblePendingCajas.length > 0 && (
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                                                                            Pendientes de validar
+                                                                        </p>
+                                                                        <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                                                            {visiblePendingCajas.length}
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                                                        {visiblePendingCajas.map((caja) => renderDestinyCajaButton(caja))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {visibleValidatedCajas.length > 0 && (
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                                                                            Ya validadas
+                                                                        </p>
+                                                                        <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                                                                            {visibleValidatedCajas.length}
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                                                        {visibleValidatedCajas.map((caja) => renderDestinyCajaButton(caja))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {filteredCajas.length === 0 && (
+                                                                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                                                                    No hay cajas que coincidan con esa bÃºsqueda en la mÃ¡quina {maquina.noMaquina}.
+                                                                </div>
+                                                            )}
+                                                            {filteredCajas.length > 0 &&
+                                                                visiblePendingCajas.length === 0 &&
+                                                                visibleValidatedCajas.length === 0 && (
+                                                                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                                                                    No hay cajas para el filtro seleccionado en la mÃ¡quina {maquina.noMaquina}.
+                                                                </div>
+                                                            )}
+                                                            {false && (<div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
                                                             {maquina.cajas
                                                                 .filter((caja) => {
                                                                     const query = (destinySearchByMachine[maquina.noMaquina] ?? "").trim();
@@ -2562,8 +2763,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                     </button>
                                                                 );
                                                             })}
-                                                            </div>
-                                                            {maquina.cajas.filter((caja) => {
+                                                            </div>)}
+                                                            {false && (/*
                                                                 const query = (destinySearchByMachine[maquina.noMaquina] ?? "").trim();
                                                                 if (!query) return false;
                                                                 const consecutivo = caja.trazabilidad.slice(-3);
@@ -2573,13 +2774,14 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                 <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
                                                                     No hay cajas que coincidan con esa búsqueda en la máquina {maquina.noMaquina}.
                                                                 </div>
-                                                            )}
+                                                            */ null)}
                                                         </div>
                                                     </AccordionContent>
                                                 </AccordionItem>
                                                 );
                                             })}
-                                        </Accordion>
+                                            </Accordion>
+                                        </>
                                     ) : (
                                         <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
                                             No hay cajas disponibles para esta orden.
@@ -3070,11 +3272,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             <div className="divide-y divide-border">
                                                 {tarima.cajas.map((caja) => {
                                                     const defectosCaja = Array.isArray(caja.defectos) ? caja.defectos : [];
+                                                    const usuarioCaja = getCajaTerminadaUsuarioLabel(caja);
                                                     return (
                                                         <div key={caja.detalleId} className="flex items-start justify-between gap-3 px-4 py-3">
                                                             <div className="min-w-0">
                                                                 <p className="font-medium text-sm">{caja.identificador}</p>
                                                                 <p className="text-xs text-muted-foreground">{caja.cantidad} pz · {caja.piezasAuditadas} auditadas</p>
+                                                                {usuarioCaja && (
+                                                                    <p className="text-xs text-muted-foreground">Agregada por: {usuarioCaja}</p>
+                                                                )}
                                                                 {caja.tieneDefectos && defectosCaja.length > 0 && (
                                                                     <details className="mt-2 text-xs">
                                                                         <summary className="cursor-pointer text-destructive font-medium">

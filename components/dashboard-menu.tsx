@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useVerifications } from "@/lib/verification-context"
-import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers, PlayCircle, ShieldAlert } from "lucide-react"
+import { PlusCircle, ClipboardList, Clock, ArrowRight, Loader2, AlertCircle, Layers, PlayCircle, ShieldAlert, Search } from "lucide-react"
 
 export function DashboardMenu() {
   const router = useRouter()
@@ -139,7 +139,7 @@ export function DashboardMenu() {
       </div>
 
       {/* Menu principal */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid gap-6 md:grid-cols-2">
         <Card
           className="border-0 shadow-lg bg-card hover:shadow-xl transition-all cursor-pointer group"
           onClick={() => router.push("/dashboard/nueva-verificacion")}
@@ -154,6 +154,25 @@ export function DashboardMenu() {
           <CardContent>
             <Button className="w-full group-hover:bg-primary/90" size="lg">
               Comenzar
+              <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card
+          className="border-0 shadow-lg bg-card hover:shadow-xl transition-all cursor-pointer group"
+          onClick={() => router.push("/dashboard/consultar-verificacion")}
+        >
+          <CardHeader className="pb-4">
+            <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
+              <Search className="w-7 h-7 text-accent" />
+            </div>
+            <CardTitle className="text-xl text-card-foreground">Consultar Verificacion</CardTitle>
+            <CardDescription>Busque una verificacion existente y revise sus tarimas y cajas</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" className="w-full bg-transparent" size="lg">
+              Consultar
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
             </Button>
           </CardContent>

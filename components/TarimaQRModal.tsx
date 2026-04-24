@@ -85,6 +85,15 @@ export function TarimaQRModal({ onClose, onUpdated }: TarimaQRModalProps) {
       ? Math.min(100, (tarima.cajasEscaneadas / tarima.cajasMeta) * 100)
       : 0
 
+  const getCajaUsuarioLabel = (caja: NonNullable<typeof tarima>["cajas"][number]) =>
+    caja.usuarioValidador?.trim() ||
+    caja.usuario?.trim() ||
+    caja.Usuario?.trim() ||
+    caja.usuarioRegistro?.trim() ||
+    caja.usuarioAgrego?.trim() ||
+    caja.agregadoPor?.trim() ||
+    null
+
   return (
     <>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -244,6 +253,11 @@ export function TarimaQRModal({ onClose, onUpdated }: TarimaQRModalProps) {
                               {caja.piezasAuditadas != null ? ` · ${caja.piezasAuditadas} auditadas` : ""}
                               {caja.horaEscaneo ? ` · ${new Date(caja.horaEscaneo).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}` : ""}
                             </p>
+                            {getCajaUsuarioLabel(caja) && (
+                              <p className="text-xs text-muted-foreground">
+                                Agregada por: {getCajaUsuarioLabel(caja)}
+                              </p>
+                            )}
                           </div>
                           {caja.tieneDefectos && (
                             <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full shrink-0">
