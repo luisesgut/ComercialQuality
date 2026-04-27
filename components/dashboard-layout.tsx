@@ -11,7 +11,7 @@ import { UpdateAnnouncementModal } from "@/components/update-announcement-modal"
 import { ForcePasswordUpdateModal } from "@/components/force-password-update-modal"
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout, isLoading } = useAuth()
+  const { user, logout, isLoading, mustChangePassword } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -70,7 +70,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Main content */}
-      <main className="container mx-auto px-4 py-8">{children}</main>
+      <main className="container mx-auto px-4 py-8">{mustChangePassword ? null : children}</main>
       <ForcePasswordUpdateModal />
       <UpdateAnnouncementModal />
     </div>

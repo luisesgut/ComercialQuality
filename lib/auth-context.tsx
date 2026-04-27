@@ -6,113 +6,85 @@ interface User {
   id: string
   name: string
   role: string
+  mustChangePassword?: boolean
 }
 
 interface AuthContextType {
   user: User | null
-  login: (userId: string, password: string) => Promise<boolean>
-  updatePassword: (newPassword: string) => Promise<boolean>
+  users: User[]
+  login: (userId: string, password: string) => Promise<LoginResult>
+  updatePassword: (newPassword: string, userId?: string) => Promise<boolean>
   logout: () => void
   isLoading: boolean
+  isUsersLoading: boolean
   mustChangePassword: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+const AUTH_API_BASE_URL = "http://172.16.10.31"
 const LOCAL_STORAGE_KEY = "auth_user"
-const PASSWORD_OVERRIDES_STORAGE_KEY = "auth_password_overrides"
-const MUST_CHANGE_PASSWORD_STORAGE_KEY = "auth_must_change_password"
 
-const DEMO_USERS: Array<User & { password: string }> = [
-  {
-    id: "0101",
-    name: "Administrador (Oliver)",
-    password: "0101",
-    role: "Administrador",
-  },
-  {
-    id: "2469",
-    name: "DIAZ BARAJAS GEMA KAREN",
-    password: "2469",
-    role: "Administrador",
-  },
-  {
-    id: "3174",
-    name: "DURAN UGALDE MOISES DE JESUS",
-    password: "3174",
-    role: "Verificador",
-  },
-  {
-    id: "2719",
-    name: "ESCOTO RAZO SODD AGUSTIN",
-    password: "2719",
-    role: "Verificador",
-  },
-  {
-    id: "3205",
-    name: "GUTIERREZ RAMIREZ ULISES ISAAC",
-    password: "3205",
-    role: "Verificador",
-  },
-  {
-    id: "3178",
-    name: "SERVIN GONZALEZ JORGE LUIS",
-    password: "3178",
-    role: "Verificador",
-  },
-  {
-    id: "3195",
-    name: "BERMUDEZ SANCHEZ MARTIN ALFREDO",
-    password: "3195",
-    role: "Verificador",
-  },
-  {
-    id: "533",
-    name: "ORTEGA MARTINEZ ERIKA LUCIA",
-    password: "533",
-    role: "Administrador",
-  },
-  {
-    id: "3206",
-    name: "RAMIREZ RAMIREZ ERIK EDUARDO",
-    password: "3206",
-    role: "Verificador",
-  },
-]
+type LoginResult = {
+  success: boolean
+  mustChangePassword?: boolean
+}
 
-export const LOGIN_USERS: Array<User> = DEMO_USERS.map(({ password: _password, ...user }) => user)
+function normalizeUser(rawUser: any): User | null {
+  if (!rawUser || typeof rawUser !== "object") {
+    return null
+  }
 
-function readPasswordOverrides(): Record<string, string> {
-  try {
-    const rawValue = localStorage.getItem(PASSWORD_OVERRIDES_STORAGE_KEY)
-    if (!rawValue) {
-      return {}
-    }
+  const id = String(rawUser.id ?? rawUser.userId ?? rawUser.usuarioId ?? rawUser.nomina ?? "").trim()
+  const name = String(rawUser.name ?? rawUser.nombre ?? rawUser.fullName ?? rawUser.nombreCompleto ?? "").trim()
+  const role = String(rawUser.role ?? rawUser.rol ?? rawUser.perfil ?? "").trim()
 
-    const parsedValue = JSON.parse(rawValue)
-    return typeof parsedValue === "object" && parsedValue !== null ? parsedValue : {}
-  } catch (error) {
-    console.error("Error reading password overrides:", error)
-    return {}
+  if (!id || !name) {
+    return null
+  }
+
+  return {
+    id,
+    name,
+    role: role || "Usuario",
+    mustChangePassword: Boolean(rawUser.mustChangePassword),
+  }
+}
+
+function normalizeUsersResponse(payload: any): User[] {
+  const rawUsers = Array.isArray(payload) ? payload : payload?.users ?? payload?.data ?? payload?.result ?? []
+  if (!Array.isArray(rawUsers)) {
+    return []
+  }
+
+  return rawUsers.map(normalizeUser).filter((user): user is User => Boolean(user))
+}
+
+function normalizeLoginResponse(payload: any, fallbackUser: User | null): { user: User | null; mustChangePassword: boolean } {
+  const rawUser = payload?.user ?? payload?.data?.user ?? payload?.data ?? payload
+  const user = normalizeUser(rawUser) ?? fallbackUser
+
+  return {
+    user,
+    mustChangePassword: Boolean(payload?.mustChangePassword ?? payload?.data?.mustChangePassword),
   }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isUsersLoading, setIsUsersLoading] = useState(true)
   const [mustChangePassword, setMustChangePassword] = useState(false)
 
   useEffect(() => {
     const checkSession = async () => {
       try {
         const storedUser = localStorage.getItem(LOCAL_STORAGE_KEY)
-        const storedMustChangePassword = localStorage.getItem(MUST_CHANGE_PASSWORD_STORAGE_KEY)
 
         if (storedUser) {
           setUser(JSON.parse(storedUser))
         }
-
-        setMustChangePassword(storedMustChangePassword === "true")
       } catch (error) {
         console.error("Error checking session:", error)
       } finally {
@@ -122,38 +94,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession()
   }, [])
 
-  const login = async (userId: string, password: string): Promise<boolean> => {
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const response = await fetch(`${AUTH_API_BASE_URL}/api/users`)
+
+        if (!response.ok) {
+          throw new Error(`Users request failed with status ${response.status}`)
+        }
+
+        const payload = await response.json()
+        setUsers(normalizeUsersResponse(payload))
+      } catch (error) {
+        console.error("Error loading users:", error)
+        setUsers([])
+      } finally {
+        setIsUsersLoading(false)
+      }
+    }
+
+    fetchUsers()
+  }, [])
+
+  const login = async (userId: string, password: string): Promise<LoginResult> => {
     try {
-      const matchedUser = DEMO_USERS.find((demoUser) => demoUser.id === userId)
+      const response = await fetch(`${AUTH_API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId, password }),
+      })
 
-      if (!matchedUser) {
-        return false
+      if (!response.ok) {
+        return { success: false }
       }
 
-      const passwordOverrides = readPasswordOverrides()
-      const effectivePassword = passwordOverrides[userId] ?? matchedUser.password
+      const payload = await response.json()
+      const fallbackUser = users.find((currentUser) => currentUser.id === userId) ?? null
+      const { user: userData, mustChangePassword: requiresPasswordUpdate } = normalizeLoginResponse(payload, fallbackUser)
 
-      if (effectivePassword !== password) {
-        return false
+      if (!userData) {
+        return { success: false }
       }
-
-      const { password: _password, ...userData } = matchedUser
-      const requiresPasswordUpdate = !passwordOverrides[userId]
 
       setUser(userData)
       setMustChangePassword(requiresPasswordUpdate)
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(userData))
-      localStorage.setItem(MUST_CHANGE_PASSWORD_STORAGE_KEY, String(requiresPasswordUpdate))
-      return true
+
+      if (requiresPasswordUpdate) {
+        localStorage.removeItem(LOCAL_STORAGE_KEY)
+      } else {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(userData))
+      }
+
+      return { success: true, mustChangePassword: requiresPasswordUpdate }
     } catch (error) {
       console.error("Error during login:", error)
-      return false
+      return { success: false }
     }
   }
 
-  const updatePassword = async (newPassword: string): Promise<boolean> => {
+  const updatePassword = async (newPassword: string, userId?: string): Promise<boolean> => {
     try {
-      if (!user) {
+      const targetUser = userId ? users.find((currentUser) => currentUser.id === userId) ?? null : user
+
+      if (!targetUser) {
         return false
       }
 
@@ -162,14 +167,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false
       }
 
-      const passwordOverrides = readPasswordOverrides()
-      const updatedOverrides = {
-        ...passwordOverrides,
-        [user.id]: trimmedPassword,
+      const response = await fetch(`${AUTH_API_BASE_URL}/api/auth/change-password?userId=${encodeURIComponent(targetUser.id)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ newPassword: trimmedPassword }),
+      })
+
+      if (!response.ok) {
+        return false
       }
 
-      localStorage.setItem(PASSWORD_OVERRIDES_STORAGE_KEY, JSON.stringify(updatedOverrides))
-      localStorage.setItem(MUST_CHANGE_PASSWORD_STORAGE_KEY, "false")
+      const updatedUser = {
+        ...targetUser,
+        mustChangePassword: false,
+      }
+
+      setUser(updatedUser)
+      setUsers((currentUsers) =>
+        currentUsers.map((currentUser) => (currentUser.id === updatedUser.id ? updatedUser : currentUser)),
+      )
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedUser))
       setMustChangePassword(false)
       return true
     } catch (error) {
@@ -183,14 +202,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       setMustChangePassword(false)
       localStorage.removeItem(LOCAL_STORAGE_KEY)
-      localStorage.removeItem(MUST_CHANGE_PASSWORD_STORAGE_KEY)
     } catch (error) {
       console.error("Error during logout:", error)
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, updatePassword, logout, isLoading, mustChangePassword }}>
+    <AuthContext.Provider value={{ user, users, login, updatePassword, logout, isLoading, isUsersLoading, mustChangePassword }}>
       {children}
     </AuthContext.Provider>
   )
