@@ -37,6 +37,7 @@ interface TarimaActiva {
     cajasLlevamos: number;
     meta: number;
     usuarioCreo: string;
+    conteoReaperturas?: number;
 }
 
 interface TarimaActivaDefecto {
@@ -80,6 +81,7 @@ interface TarimaActivaDetalle {
     usuarioCreo: string;
     fechaInicio: string;
     fechaCierre: string | null;
+    conteoReaperturas?: number;
     colaboradores?: TarimaColaborador[];
     cajas: TarimaActivaCaja[];
 }
@@ -180,6 +182,7 @@ interface TarimaTerminada {
     fechaCierre: string;
     estatusCierre: string | null;
     comentarioCierre: string | null;
+    conteoReaperturas?: number;
     cajas: TarimaTerminadaCaja[];
 }
 
@@ -273,6 +276,11 @@ const getCajaUsuarioLabel = (caja: TarimaActivaCaja) =>
 
 const getCajaTerminadaUsuarioLabel = (caja: TarimaTerminadaCaja) =>
     caja.usuarioValidador?.trim() || null;
+
+const getTarimaReaperturaCount = (tarima?: { conteoReaperturas?: number | null } | null) => {
+    const count = Number(tarima?.conteoReaperturas ?? 0);
+    return Number.isFinite(count) && count > 0 ? count : 0;
+};
 
 const matchesDestinyCajaQuery = (caja: DestinyCajaDisponible, query: string) => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -371,6 +379,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
     const selectedTarimaIdRef = useRef<number | null>(null);
+    const getRequiredCurrentUserName = () => {
+        const resolvedUserName = (user?.name || currentUserName || "").trim();
+        if (!resolvedUserName || resolvedUserName === "USUARIO DESCONOCIDO") {
+            throw new Error("No se encontro el usuario loggeado para registrar la bitacora.");
+        }
+        return resolvedUserName;
+    };
     
     // Función para obtener los detalles del dashboard (GET a /dashboard/{id})
     const fetchDashboardData = useCallback(async (options?: { silent?: boolean }) => {
@@ -1378,9 +1393,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
         if (isTarimaAbierta(estadoActual)) return false;
 
-        const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir-tarima/${tarimaId}`, {
-            method: "PUT",
-        });
+        const usuario = getRequiredCurrentUserName();
+        const reopenResponse = await fetch(
+            `${API_BASE_URL}/Verificacion/reabrir-tarima/${tarimaId}?usuario=${encodeURIComponent(usuario)}`,
+            {
+                method: "PUT",
+            }
+        );
         if (!reopenResponse.ok) {
             throw new Error(await parseApiError(reopenResponse, `Error (${reopenResponse.status}) al reabrir tarima.`));
         }
@@ -1451,6 +1470,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setCreateTarimaSuccess(null);
         setIsCreatingTarima(true);
         try {
+            const usuario = getRequiredCurrentUserName();
             const response = await fetch(`${API_BASE_URL}/Verificacion/iniciar-tarima`, {
                 method: "POST",
                 headers: {
@@ -1458,7 +1478,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 },
                 body: JSON.stringify({
                     verificacionId: verifiedIdNumber,
-                    usuario: currentUserName,
+                    usuario,
                 }),
             });
             if (!response.ok) {
@@ -1624,6 +1644,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
               ? selectedDestinyCaja?.trazabilidad ?? null
               : null;
         const consecutivoManualPayload = isBioflex || isDestiny ? 0 : Number(consecutivoManualInput);
+        const usuario = getRequiredCurrentUserName();
 
         const payload: Record<string, any> = {
             verificacionId: verifiedIdNumber,
@@ -1633,7 +1654,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             qtyUomEtiqueta: qtyUomEtiquetaInput,
             tipoEtiqueta,
             piezasAuditadas: piezasAuditadasValue,
-            usuario: user?.name ?? "",
+            usuario,
         };
 
         setIsRegisteringScan(true);
@@ -1894,6 +1915,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setIsClosingTarima(true);
 
         try {
+            const usuario = getRequiredCurrentUserName();
             const response = await fetch(`${API_BASE_URL}/Verificacion/terminar-tarima-manual`, {
                 method: "POST",
                 headers: {
@@ -1904,6 +1926,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     tarimaId: selectedTarima.tarimaId,
                     estatusCierre: closeTarimaEstatusCierre,
                     motivo: closeTarimaAgregarComentario ? closeTarimaComentario.trim() : "",
+                    usuario,
                 }),
             });
 
@@ -1955,9 +1978,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
         setReopeningTarimaId(tarima.tarimaId);
         try {
-            const response = await fetch(`${API_BASE_URL}/Verificacion/reabrir-tarima/${tarima.tarimaId}`, {
-                method: "PUT",
-            });
+            const usuario = getRequiredCurrentUserName();
+            const response = await fetch(
+                `${API_BASE_URL}/Verificacion/reabrir-tarima/${tarima.tarimaId}?usuario=${encodeURIComponent(usuario)}`,
+                {
+                    method: "PUT",
+                }
+            );
             if (!response.ok) {
                 let detail = `Error (${response.status}) al reabrir tarima.`;
                 try {
@@ -1995,9 +2022,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
         setDeletingCajaId(detalleId);
         try {
-            const res = await fetch(`${API_BASE_URL}/Verificacion/eliminar-caja/${detalleId}`, {
-                method: "DELETE",
-            });
+            const usuario = getRequiredCurrentUserName();
+            const res = await fetch(
+                `${API_BASE_URL}/Verificacion/eliminar-caja/${detalleId}?usuario=${encodeURIComponent(usuario)}`,
+                {
+                    method: "DELETE",
+                }
+            );
             if (!res.ok) {
                 let detail = `Error (${res.status}) al eliminar caja.`;
                 try {
@@ -2050,6 +2081,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setIsFinishing(true);
 
         try {
+            const usuario = getRequiredCurrentUserName();
             const response = await fetch(`${API_BASE_URL}/Verificacion/terminar`, {
                 method: "PUT",
                 headers: {
@@ -2059,6 +2091,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     verificacionId: verifiedIdNumber,
                     muestreo: finishMuestreo,
                     comentarios: finishComentarios,
+                    usuario,
                 }),
             });
 
@@ -2347,6 +2380,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {tarimasActivas.map((tarima) => {
                             const isSelected = selectedTarima?.tarimaId === tarima.tarimaId;
+                            const reaperturaCount = getTarimaReaperturaCount(tarima);
                             const progress = tarima.meta > 0
                                 ? Math.min(100, (tarima.cajasLlevamos / tarima.meta) * 100)
                                 : 0;
@@ -2368,6 +2402,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             <div>
                                                 <p className="text-xs text-muted-foreground uppercase tracking-wide">Tarima</p>
                                                 <p className="text-3xl font-bold mt-0.5">#{tarima.numeroTarima}</p>
+                                                {reaperturaCount > 0 && (
+                                                    <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 border border-amber-200">
+                                                        <AlertCircle className="h-3.5 w-3.5" />
+                                                        Retrabajada {reaperturaCount} ocasion{reaperturaCount === 1 ? "" : "es"}
+                                                    </p>
+                                                )}
                                             </div>
                                             <div className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold ${
                                                 isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
@@ -2438,6 +2478,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
                                 <AlertCircle className="w-4 h-4" />
                                 {tarimaActivaDetalleError}
+                            </div>
+                        )}
+                        {getTarimaReaperturaCount(selectedTarima) > 0 && (
+                            <div className="flex items-center gap-2 text-sm text-amber-800 bg-amber-100 border border-amber-200 p-3 rounded-lg">
+                                <AlertCircle className="w-4 h-4 shrink-0" />
+                                Esta tarima fue retrabajada {getTarimaReaperturaCount(selectedTarima)} ocasion{getTarimaReaperturaCount(selectedTarima) === 1 ? "" : "es"}.
                             </div>
                         )}
                         {!isTarimaActivaDetalleLoading && selectedTarimaDetalle?.colaboradores && selectedTarimaDetalle.colaboradores.length > 0 && (

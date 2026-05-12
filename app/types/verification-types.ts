@@ -105,6 +105,7 @@ export interface VerificationLookupTarimaAbierta {
   fechaInicio?: string | null;
   fechaCierre?: string | null;
   estado?: string | null;
+  conteoReaperturas?: number | null;
   colaboradores?: VerificationLookupTarimaColaborador[] | null;
   cajas?: VerificationLookupCaja[];
 }
@@ -123,6 +124,7 @@ export interface VerificationLookupTarimaTerminada {
   fechaCierre: string;
   estatusCierre: string | null;
   comentarioCierre: string | null;
+  conteoReaperturas?: number | null;
   cajas: VerificationLookupCaja[];
 }
 

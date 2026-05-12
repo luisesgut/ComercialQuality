@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useAuth } from "@/lib/auth-context"
 
 const API_BASE_URL = "http://172.16.10.31/api"
 
@@ -31,6 +32,7 @@ export interface TarimaDetalle {
   usuarioCreo: string
   fechaInicio: string
   fechaCierre: string | null
+  conteoReaperturas?: number
   cajas: TarimaCaja[]
 }
 
@@ -50,6 +52,7 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
 }
 
 export function useTarimaDetail() {
+  const { user } = useAuth()
   const [tarima, setTarima] = useState<TarimaDetalle | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -73,11 +76,20 @@ export function useTarimaDetail() {
     }
   }
 
+  const getRequiredUserName = () => {
+    const userName = user?.name?.trim()
+    if (!userName) {
+      throw new Error("No se encontro el usuario loggeado para registrar la bitacora.")
+    }
+    return userName
+  }
+
   const reabrirTarima = async (tarimaId: number): Promise<boolean> => {
     setIsSubmitting(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/Verificacion/reabrir-tarima/${tarimaId}`, {
+      const usuario = getRequiredUserName()
+      const res = await fetch(`${API_BASE_URL}/Verificacion/reabrir-tarima/${tarimaId}?usuario=${encodeURIComponent(usuario)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
       })
@@ -98,7 +110,8 @@ export function useTarimaDetail() {
     setIsSubmitting(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/Verificacion/eliminar-caja/${detalleId}`, {
+      const usuario = getRequiredUserName()
+      const res = await fetch(`${API_BASE_URL}/Verificacion/eliminar-caja/${detalleId}?usuario=${encodeURIComponent(usuario)}`, {
         method: "DELETE",
       })
       if (!res.ok) {
