@@ -7,54 +7,37 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Dependencies
         run: |
-          # 1. Instalar herramientas
           npm install -g pnpm pm2
-          
-          # 2. Refrescar el PATH
-          $npmPath = npm config get prefix
-          $env:Path += ";$npmPath"
-          
-          # 3. Instalación inicial (aunque falle, descarga los paquetes)
-          # Usamos || $true para que no detenga el workflow si falla por los scripts
-          npx pnpm install || $true
-          
-          # 4. APROBACIÓN MANUAL DE BINARIOS
-          # Este es el comando exacto que pnpm pide para autorizar a sharp
-          npx pnpm approve-builds sharp
-          
-          # 5. Instalación final (ahora con los permisos aprobados)
           npx pnpm install
         shell: powershell
 
       - name: Build Project
-        run: |
-          $npmPath = npm config get prefix
-          $env:Path += ";$npmPath"
-          npx pnpm run build
+        run: npx pnpm run build
         shell: powershell
 
       - name: Deploy to IIS Folder
         run: |
           $sourcePath = "."
           $destinationPath = "C:\inetpub\wwwroot\NextQuality"
-          if (!(Test-Path $destinationPath)) { New-Item -ItemType Directory -Path $destinationPath }
-          
+          # Robocopy: /MIR (Mirror), /V (Verbose), /NP (No Progress), /XD (Exclude Dirs), /XF (Exclude Files)
           robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env .env.local web.config ecosystem.config.js
           if ($lastexitcode -lt 8) { exit 0 } else { exit $lastexitcode }
         shell: powershell
 
       - name: Restart App with PM2
         run: |
-          $npmPath = npm config get prefix
-          $env:Path += ";$npmPath"
-          cd "C:\inetpub\wwwroot\NextQuality"
+          $ErrorActionPreference = "SilentlyContinue"
+          npx pm2 delete "calidad-comercial" | Out-Null
+          $ErrorActionPreference = "Stop"
           
-          npx pm2 restart "calidad-comercial" --if-not-exists -- ecosystem.config.js
+          cd "C:\inetpub\wwwroot\NextQuality"
+          npx pm2 start ecosystem.config.js
           npx pm2 save
         shell: powershell
