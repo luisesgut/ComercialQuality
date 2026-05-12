@@ -20,9 +20,12 @@ jobs:
           $npmPath = npm config get prefix
           $env:Path += ";$npmPath"
           
-          # 3. Solución Universal: ignore-scripts=false
-          # Esto obliga a pnpm a ejecutar los builds (como el de sharp) sin preguntar
-          npx pnpm install --ignore-scripts=false
+          # 3. OPCIÓN NUCLEAR: Configurar el archivo .npmrc localmente 
+          # para que pnpm SIEMPRE permita compilar sharp en este runner.
+          "only-built-dependencies=sharp" | Out-File -FilePath .npmrc -Encoding ascii
+          
+          # 4. Instalar con npx para asegurar compatibilidad
+          npx pnpm install
         shell: powershell
 
       - name: Build Project
@@ -48,7 +51,6 @@ jobs:
           $env:Path += ";$npmPath"
           cd "C:\inetpub\wwwroot\NextQuality"
           
-          # Reiniciar proceso o iniciarlo si es nuevo
           npx pm2 restart "calidad-comercial" --if-not-exists -- ecosystem.config.js
           npx pm2 save
         shell: powershell
