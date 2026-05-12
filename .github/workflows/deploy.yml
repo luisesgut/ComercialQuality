@@ -13,18 +13,22 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. Instalar pnpm y pm2 globalmente
+          # 1. Instalar herramientas
           npm install -g pnpm pm2
           
-          # 2. Refrescar el PATH para la sesión actual
+          # 2. Refrescar el PATH
           $npmPath = npm config get prefix
           $env:Path += ";$npmPath"
           
-          # 3. OPCIÓN NUCLEAR: Configurar el archivo .npmrc localmente 
-          # para que pnpm SIEMPRE permita compilar sharp en este runner.
-          "only-built-dependencies=sharp" | Out-File -FilePath .npmrc -Encoding ascii
+          # 3. Instalación inicial (aunque falle, descarga los paquetes)
+          # Usamos || $true para que no detenga el workflow si falla por los scripts
+          npx pnpm install || $true
           
-          # 4. Instalar con npx para asegurar compatibilidad
+          # 4. APROBACIÓN MANUAL DE BINARIOS
+          # Este es el comando exacto que pnpm pide para autorizar a sharp
+          npx pnpm approve-builds sharp
+          
+          # 5. Instalación final (ahora con los permisos aprobados)
           npx pnpm install
         shell: powershell
 
