@@ -16,15 +16,12 @@ jobs:
         run: |
           npm install -g pnpm@10.25.0 pm2
 
-          # Permitir scripts de dependencias como sharp
-          pnpm config set ignore-scripts false
-
-          # Instalar dependencias
-          pnpm install --no-frozen-lockfile --ignore-scripts=false
+          npx pnpm config set ignore-scripts false
+          npx pnpm install --no-frozen-lockfile --ignore-scripts=false
         shell: powershell
 
       - name: Build Project
-        run: pnpm run build
+        run: npx pnpm run build
         shell: powershell
 
       - name: Deploy to IIS Folder
@@ -36,7 +33,6 @@ jobs:
             /XD node_modules .git .github `
             /XF .env .env.local web.config ecosystem.config.js
 
-          # Robocopy devuelve códigos < 8 incluso cuando fue exitoso
           if ($lastexitcode -lt 8) {
             exit 0
           } else {
