@@ -1,4 +1,5 @@
 name: Deploy Next.js ComercialQuality
+
 on:
   push:
     branches: [ "main" ]
@@ -12,39 +13,55 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. Instalar herramientas globales
+          # 1. Instalar pnpm y pm2 globalmente
           npm install -g pnpm pm2
           
-          # 2. Autorizar específicamente a 'sharp' para que pueda compilarse
-          # Esto elimina el error [ERR_PNPM_IGNORED_BUILDS]
-          pnpm config set only-built-dependencies sharp
+          # 2. Forzar la actualización del PATH en la sesión actual de PowerShell
+          $npmPath = npm config get prefix
+          $env:Path += ";$npmPath"
           
-          # 3. Instalar dependencias
-          pnpm install
+          # 3. Autorizar 'sharp' para evitar el error ERR_PNPM_IGNORED_BUILDS
+          npx pnpm config set only-built-dependencies sharp
+          
+          # 4. Instalar dependencias del proyecto
+          npx pnpm install
         shell: powershell
 
       - name: Build Project
-        run: pnpm run build
+        run: |
+          # Asegurar que pnpm esté en el path para este paso
+          $npmPath = npm config get prefix
+          $env:Path += ";$npmPath"
+          
+          npx pnpm run build
         shell: powershell
 
       - name: Deploy to IIS Folder
         run: |
           $sourcePath = "."
           $destinationPath = "C:\inetpub\wwwroot\NextQuality"
-          # Robocopy es excelente, pero asegúrate de que el destino exista
-          if (!(Test-Path $destinationPath)) { New-Item -ItemType Directory -Path $destinationPath }
           
+          # Crear la carpeta de destino si no existe
+          if (!(Test-Path $destinationPath)) { 
+              New-Item -ItemType Directory -Path $destinationPath 
+          }
+          
+          # Robocopy: /MIR (Espejo), /XD (Excluir carpetas), /XF (Excluir archivos críticos)
           robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env .env.local web.config ecosystem.config.js
+          
+          # Robocopy usa códigos de salida distintos a 0 para éxito, ajustamos para GH Actions
           if ($lastexitcode -lt 8) { exit 0 } else { exit $lastexitcode }
         shell: powershell
 
       - name: Restart App with PM2
         run: |
-          # Entrar al directorio donde vive la app final
+          # Refrescar PATH para encontrar pm2
+          $npmPath = npm config get prefix
+          $env:Path += ";$npmPath"
+          
           cd "C:\inetpub\wwwroot\NextQuality"
           
-          # Intentar reiniciar, si no existe, arrancarlo por primera vez
-          # Esto es más limpio que borrar y crear cada vez
-          pm2 restart "calidad-comercial" --if-not-exists -- ecosystem.config.js
-          pm2 save
+          # Reiniciar si existe, si no, arrancar usando la configuración de ecosystem
+          npx pm2 restart "calidad-comercial" --if-not-exists -- ecosystem.config.js
+          npx pm2 save
         shell: powershell
