@@ -16,23 +16,20 @@ jobs:
           # 1. Instalar pnpm y pm2 globalmente
           npm install -g pnpm pm2
           
-          # 2. Forzar la actualización del PATH en la sesión actual de PowerShell
+          # 2. Refrescar el PATH
           $npmPath = npm config get prefix
           $env:Path += ";$npmPath"
           
-          # 3. Autorizar 'sharp' para evitar el error ERR_PNPM_IGNORED_BUILDS
-          npx pnpm config set only-built-dependencies sharp
-          
-          # 4. Instalar dependencias del proyecto
-          npx pnpm install
+          # 3. Instalación agresiva: 
+          # --only-built-dependencies permite que sharp se compile
+          # --no-frozen-lockfile evita errores si el lock no coincide exactamente
+          npx pnpm install --only-built-dependencies=sharp
         shell: powershell
 
       - name: Build Project
         run: |
-          # Asegurar que pnpm esté en el path para este paso
           $npmPath = npm config get prefix
           $env:Path += ";$npmPath"
-          
           npx pnpm run build
         shell: powershell
 
@@ -40,28 +37,19 @@ jobs:
         run: |
           $sourcePath = "."
           $destinationPath = "C:\inetpub\wwwroot\NextQuality"
+          if (!(Test-Path $destinationPath)) { New-Item -ItemType Directory -Path $destinationPath }
           
-          # Crear la carpeta de destino si no existe
-          if (!(Test-Path $destinationPath)) { 
-              New-Item -ItemType Directory -Path $destinationPath 
-          }
-          
-          # Robocopy: /MIR (Espejo), /XD (Excluir carpetas), /XF (Excluir archivos críticos)
           robocopy $sourcePath $destinationPath /MIR /V /NP /XD node_modules .git .github /XF .env .env.local web.config ecosystem.config.js
-          
-          # Robocopy usa códigos de salida distintos a 0 para éxito, ajustamos para GH Actions
           if ($lastexitcode -lt 8) { exit 0 } else { exit $lastexitcode }
         shell: powershell
 
       - name: Restart App with PM2
         run: |
-          # Refrescar PATH para encontrar pm2
           $npmPath = npm config get prefix
           $env:Path += ";$npmPath"
-          
           cd "C:\inetpub\wwwroot\NextQuality"
           
-          # Reiniciar si existe, si no, arrancar usando la configuración de ecosystem
+          # Usamos npx para asegurar que encuentre pm2
           npx pm2 restart "calidad-comercial" --if-not-exists -- ecosystem.config.js
           npx pm2 save
         shell: powershell
