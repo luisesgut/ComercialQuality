@@ -5,6 +5,24 @@ import { classifyApiError, formatApiError } from "@/lib/api-error";
 // URL Base de tu API
 const API_BASE_URL = "http://172.16.10.31/api";
 
+const fetchTipoEmpaqueFromDestinyDatos = async (codigoProducto: string) => {
+    const normalizedCodigo = String(codigoProducto ?? "").trim();
+    if (!normalizedCodigo) return undefined;
+
+    try {
+        const urlDatos = `${API_BASE_URL}/DestinyDatos?codigoProducto=${encodeURIComponent(normalizedCodigo)}`;
+        const resDatos = await fetch(urlDatos);
+        if (!resDatos.ok) return undefined;
+
+        const datosJson = await resDatos.json();
+        const item = Array.isArray(datosJson) ? datosJson[0] : datosJson;
+        const tipoEmpaque = String(item?.tipoEmpaque ?? "").trim();
+        return tipoEmpaque || undefined;
+    } catch {
+        return undefined;
+    }
+};
+
 interface HookResult {
   consolidatedData: ConsolidateProductData | null;
   isFetching: boolean;
@@ -229,19 +247,7 @@ export function useVerificationData(): HookResult {
         }
 
         // Obtener tipoEmpaque de DestinyDatos
-        let tipoEmpaque: string | undefined;
-        try {
-            const urlDatos = `${API_BASE_URL}/DestinyDatos?codigoProducto=${encodeURIComponent(data.claveProducto)}`;
-            const resDatos = await fetch(urlDatos);
-            if (resDatos.ok) {
-                const datosJson = await resDatos.json();
-                // Puede ser array o objeto único
-                const item = Array.isArray(datosJson) ? datosJson[0] : datosJson;
-                if (item?.tipoEmpaque) tipoEmpaque = item.tipoEmpaque;
-            }
-        } catch {
-            // Si falla, continuamos sin tipoEmpaque (no es bloqueante)
-        }
+        const tipoEmpaque = await fetchTipoEmpaqueFromDestinyDatos(data.claveProducto);
 
         await fetchComplementaryData(data, 'DESTINY', tipoEmpaque);
 
@@ -296,11 +302,15 @@ export function useVerificationData(): HookResult {
           uom: "",
           maquina: "",
         };
+        const tipoEmpaqueFromQuality = String(datosEtiqueta?.tipoEmpaque ?? "").trim();
+        const tipoEmpaque =
+            ((await fetchTipoEmpaqueFromDestinyDatos(etiquetaData.claveProducto || itemNo))
+            ?? tipoEmpaqueFromQuality) || undefined;
 
         await fetchComplementaryData(
             etiquetaData,
             'QUALITY',
-            datosEtiqueta?.tipoEmpaque,
+            tipoEmpaque,
             datosEtiqueta
                 ? {
                     piezasPorCaja: Number(datosEtiqueta.piezasTotalePorCaja) || 0,

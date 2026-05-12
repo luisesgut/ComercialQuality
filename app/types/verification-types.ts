@@ -29,7 +29,7 @@ export interface ConsolidateProductData {
   etiqueta: EtiquetaData;
   orden: OrdenData;
   valoresTecnicos: ValoresTecnicosData;
-  tipoEmpaque?: string; // Solo Destiny: obtenido de DestinyDatos
+  tipoEmpaque?: string; // Sugerido por la API para el tipo de bolsa
 }
 
 export interface ActiveVerificationData {

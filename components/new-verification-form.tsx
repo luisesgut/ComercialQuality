@@ -127,7 +127,7 @@ export function NewVerificationForm() {
     setClienteInput(clientePorModo);
   }, [mode, verificationStarted]);
 
-  // Auto-rellenar tipoBolsa con tipoEmpaque de DestinyDatos
+  // Auto-rellenar tipoBolsa con tipoEmpaque sugerido por la API.
   useEffect(() => {
     if (consolidatedData?.tipoEmpaque && !tipoBolsaInput) {
       setTipoBolsaInput(consolidatedData.tipoEmpaque);
@@ -640,7 +640,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                 ))}
               </SelectContent>
             </Select>
-            {mode === "destiny" && consolidatedData?.tipoEmpaque && (
+            {consolidatedData?.tipoEmpaque && (
               <p className="text-xs text-muted-foreground">
                 Valor sugerido por SAP: {consolidatedData.tipoEmpaque}
               </p>
