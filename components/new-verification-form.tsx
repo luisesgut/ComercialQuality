@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth-context"
 import { useVerificationData } from "@/hooks/useVerificationData"
 
 // Tipos
-import { ConsolidateProductData, DestinyEtiquetaData } from "@/app/types/verification-types"
+import { ConsolidateProductData } from "@/app/types/verification-types"
 
 // Componentes de UI
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -91,7 +91,7 @@ export function NewVerificationForm() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const scannerStreamRef = useRef<MediaStream | null>(null)
   const [isVideoReady, setIsVideoReady] = useState(false) // Nuevo estado
-  const [scanTarget, setScanTarget] = useState<"trazability" | "destinyItemNo" | "qualityLot" | "qualityItem" | null>(null)
+  const [scanTarget, setScanTarget] = useState<"trazability" | "destinyShippingUnitId" | "qualityLot" | "qualityItem" | null>(null)
   const [scannerFormats, setScannerFormats] = useState<string[]>(["qr_code"])
 
 
@@ -113,8 +113,7 @@ export function NewVerificationForm() {
   const [helpImage, setHelpImage] = useState<null | { title: string; src: string; alt: string }>(null)
 
   // --- ESTADOS ESPECÍFICOS DE DESTINY (Inputs) ---
-  const [destinyItemNo, setDestinyItemNo] = useState("")
-  const [destinyInventoryLot, setDestinyInventoryLot] = useState("")
+  const [destinyShippingUnitId, setDestinyShippingUnitId] = useState("")
 
   // --- ESTADOS ESPECÍFICOS DE QUALITY (Mock) ---
   const [qualityPO2, setQualityPO2] = useState("")
@@ -151,8 +150,7 @@ export function NewVerificationForm() {
     if (mode === "bioflex") {
       valor = String((etiqueta as any).piezas || valoresTecnicos?.piezasPorCaja || "");
     } else if (mode === "destiny") {
-      const destLabel = etiqueta as unknown as DestinyEtiquetaData;
-      valor = String(destLabel.prodEtiquetasDestiny?.qtyUOM || "");
+      valor = String((etiqueta as any).piezas || valoresTecnicos?.piezasPorCaja || "");
     } else if (mode === "quality") {
       valor = String(valoresTecnicos?.piezasPorCaja || "");
     }
@@ -241,13 +239,13 @@ export function NewVerificationForm() {
     setSubmitError(null)
     setVerificationStarted(false);
 
-    if (!destinyItemNo || !destinyInventoryLot) {
-      setSubmitError("Complete ItemNo e InventoryLot para Destiny.")
+    if (!destinyShippingUnitId) {
+      setSubmitError("Complete ShippingUnitID para Destiny.")
       return
     }
 
     // Usamos el hook unificado
-    await fetchByDestiny(destinyItemNo, destinyInventoryLot);
+    await fetchByDestiny(destinyShippingUnitId);
   }
 
   // Quality
@@ -281,7 +279,7 @@ export function NewVerificationForm() {
     setScanTarget(null)
   }
 
-const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLot" | "qualityItem", formats: string[]) => {
+const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "qualityLot" | "qualityItem", formats: string[]) => {
     setScannerError(null)
     setIsVideoReady(false)
     if (isScannerActive) {
@@ -358,8 +356,8 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
             const barcodes = await detector.detect(video);
                     if (barcodes.length > 0) {
                         const codeValue = barcodes[0].rawValue;
-                        if (scanTarget === "destinyItemNo") {
-                          setDestinyItemNo(codeValue);
+                        if (scanTarget === "destinyShippingUnitId") {
+                          setDestinyShippingUnitId(codeValue);
                           stopScanner();
                           return;
                         }
@@ -680,17 +678,10 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
     const isBioflex = mode === "bioflex";
     const { etiqueta, orden, valoresTecnicos } = consolidatedData;
 
-    // Type guard para detectar si la etiqueta tiene la forma DestinyEtiquetaData
-    const isDestinyEtiqueta = (e: any): e is DestinyEtiquetaData => {
-      return !!e && typeof e === "object" && ("prodEtiquetasDestiny" in e || "piezas" in e || "claveUnidad" in e);
-    };
-
     // Display values (Calculados según modo para la vista previa)
     const piezasPorCajaDisplay = isBioflex
       ? ((etiqueta as any).piezas || valoresTecnicos?.piezasPorCaja)
-      : (isDestinyEtiqueta(etiqueta)
-        ? (etiqueta.prodEtiquetasDestiny?.qtyUOM ?? "-")
-        : (valoresTecnicos?.piezasPorCaja ?? "-"));
+      : ((etiqueta as any).piezas || valoresTecnicos?.piezasPorCaja || "-");
 
     const qtyOrden = isBioflex
       ? `${orden?.cantidad || '-'} ${orden?.unidad || '-'}`
@@ -700,7 +691,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
       ? `Trazabilidad: ${(etiqueta as any).trazabilidad}`
       : mode === "quality"
         ? `PO2: ${qualityPO2} · Item: ${qualityItemNumber}`
-        : `Shipping ID: ${etiqueta.orden}`;
+        : `ShippingUnitID: ${(etiqueta as any).trazabilidad}`;
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -818,13 +809,13 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
         <Card className="border-0 shadow-lg bg-card">
           <CardHeader>
             <CardTitle className="text-xl text-card-foreground">Datos Destiny</CardTitle>
-            <CardDescription>ItemNo e InventoryLot</CardDescription>
+            <CardDescription>ShippingUnitID</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleDestinySubmit} className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="destiny-item">ItemNo</Label>
+                  <Label htmlFor="destiny-shipping-unit">ShippingUnitID</Label>
                   <Button
                     type="button"
                     variant="ghost"
@@ -832,26 +823,33 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                     className="h-5 w-5"
                     onClick={() =>
                       setHelpImage({
-                        title: "Guia ItemNo",
-                        src: "/guia-ItemNo.jpg",
-                        alt: "Guia para encontrar ItemNo",
+                        title: "Guia ShippingUnitID",
+                        src: "/guia-Shippingunit.jpg",
+                        alt: "Guia para encontrar ShippingUnitID",
                       })
                     }
                   >
                     <HelpCircle className="h-4 w-4" />
                   </Button>
                 </div>
-                <Input id="destiny-item" value={destinyItemNo} onChange={(e) => setDestinyItemNo(e.target.value)} placeholder="Ej. 61953-11" disabled={isFetching} />
+                <Input
+                  id="destiny-shipping-unit"
+                  inputMode="numeric"
+                  value={destinyShippingUnitId}
+                  onChange={(e) => setDestinyShippingUnitId(e.target.value)}
+                  placeholder="Ej. 31651"
+                  disabled={isFetching}
+                />
                 <div className="space-y-2">
                   <Button
                     type="button"
                     variant="outline"
                     className="w-full"
                     onClick={() => {
-                      if (isScannerActive && scanTarget === "destinyItemNo") {
+                      if (isScannerActive && scanTarget === "destinyShippingUnitId") {
                         stopScanner()
                       } else {
-                        startScanner("destinyItemNo", [
+                        startScanner("destinyShippingUnitId", [
                           "code_128",
                           "code_39",
                           "code_93",
@@ -868,17 +866,17 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                     disabled={isFetching}
                   >
                     <QrCode className="w-5 h-5 mr-2" />
-                    {isScannerActive && scanTarget === "destinyItemNo"
+                    {isScannerActive && scanTarget === "destinyShippingUnitId"
                       ? "Detener escaneo"
                       : "Escanear código de barras"}
                   </Button>
-                  {scannerError && scanTarget === "destinyItemNo" && (
+                  {scannerError && scanTarget === "destinyShippingUnitId" && (
                     <p className="text-sm text-destructive flex items-center gap-2">
                       <AlertCircle className="w-4 h-4" />
                       {scannerError}
                     </p>
                   )}
-                  {isScannerActive && scanTarget === "destinyItemNo" && (
+                  {isScannerActive && scanTarget === "destinyShippingUnitId" && (
                     <div className="mt-2 rounded-lg border bg-black/70 p-2 flex flex-col items-center gap-2">
                       <video
                         ref={videoRef}
@@ -890,33 +888,12 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                       />
                       <p className="text-xs text-muted-foreground">
                         {isVideoReady
-                          ? "Apunte al código de barras para capturar el ItemNo."
+                          ? "Apunte al código de barras para capturar el ShippingUnitID."
                           : "Cargando cámara..."}
                       </p>
                     </div>
                   )}
                 </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="destiny-lot">InventoryLot</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5"
-                    onClick={() =>
-                      setHelpImage({
-                        title: "Guia InventoryLot",
-                        src: "/guia-Inventorylot.jpg",
-                        alt: "Guia para encontrar InventoryLot",
-                      })
-                    }
-                  >
-                    <HelpCircle className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Input id="destiny-lot" inputMode="numeric" value={destinyInventoryLot} onChange={(e) => setDestinyInventoryLot(e.target.value)} placeholder="Ej. 13915" disabled={isFetching} />
               </div>
               <Button type="submit" className="w-full h-12 text-lg" disabled={isFetching}>
                 {isFetching ? "Buscando..." : "Buscar datos Destiny"}
@@ -1168,6 +1145,7 @@ const startScanner = async (target: "trazability" | "destinyItemNo" | "qualityLo
                 setCreatedVerificationId(null)
                 setSubmitError(null)
                 setVerificationStarted(false)
+                setDestinyShippingUnitId("")
                 stopScanner()
                 resetData(); // Limpia datos al cambiar
               }}
