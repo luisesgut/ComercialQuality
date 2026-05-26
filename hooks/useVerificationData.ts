@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ConsolidateProductData, DestinyEtiquetaData } from "@/app/types/verification-types";
+import { ConsolidateProductData } from "@/app/types/verification-types";
 import { classifyApiError, formatApiError } from "@/lib/api-error";
 
 // URL Base de tu API
@@ -29,9 +29,18 @@ interface HookResult {
   error: string | null;
   // Métodos de entrada
   fetchByBioflex: (trazabilidad: string) => Promise<void>;
-  fetchByDestiny: (itemNo: string, lot: string) => Promise<void>;
+  fetchByDestiny: (shippingUnitId: string) => Promise<void>;
   fetchByQuality: (po2: string, itemNo: string) => Promise<void>;
   resetData: () => void;
+}
+
+interface DestinyShippingUnitResponse {
+    lote: string;
+    codigoProducto: string;
+    producto: string;
+    maquina: string;
+    piezas: number;
+    printCard: string | null;
 }
 
 export function useVerificationData(): HookResult {
@@ -224,32 +233,52 @@ export function useVerificationData(): HookResult {
 
 
   // --- ENTRADA 2: DESTINY ---
-  const fetchByDestiny = useCallback(async (itemNo: string, lot: string) => {
+  const fetchByDestiny = useCallback(async (shippingUnitId: string) => {
+    const normalizedShippingUnitId = String(shippingUnitId ?? "").trim();
+    if (!normalizedShippingUnitId) return;
+
     setIsFetching(true);
     setError(null);
     setConsolidatedData(null);
 
     try {
-        const urlDestiny = `${API_BASE_URL}/EtiquetaIndividual/destiny/search-by-lot?itemNo=${itemNo}&inventoryLot=${lot}`;
+        const urlDestiny = `${API_BASE_URL}/EtiquetaIndividual/destiny/search-by-lot-2?shippingUnitId=${encodeURIComponent(normalizedShippingUnitId)}`;
         let response: Response;
         try {
             response = await fetch(urlDestiny);
         } catch (err) {
-            throw classifyApiError(err, undefined, `ItemNo ${itemNo}`);
+            throw classifyApiError(err, undefined, `ShippingUnitID ${normalizedShippingUnitId}`);
         }
         if (!response.ok) {
-            throw classifyApiError(new Error(`HTTP ${response.status}`), response.status, `ItemNo ${itemNo} / Lot ${lot}`);
+            throw classifyApiError(new Error(`HTTP ${response.status}`), response.status, `ShippingUnitID ${normalizedShippingUnitId}`);
         }
 
-        const data: DestinyEtiquetaData = await response.json();
-        if (!data || !data.prodEtiquetasDestiny) {
-            throw classifyApiError(new Error("Respuesta incompleta"), 404, `ItemNo ${itemNo}`);
+        const data: DestinyShippingUnitResponse = await response.json();
+        const claveProducto = String(data?.codigoProducto ?? "").trim();
+        const orden = Number(String(data?.lote ?? "").trim());
+        if (!data || !claveProducto || !Number.isFinite(orden)) {
+            throw classifyApiError(new Error("Respuesta incompleta"), 404, `ShippingUnitID ${normalizedShippingUnitId}`);
         }
+
+        const etiquetaData = {
+            id: 0,
+            area: "DESTINY",
+            claveProducto,
+            nombreProducto: String(data.producto ?? "").trim(),
+            orden,
+            trazabilidad: normalizedShippingUnitId,
+            printCard: String(data.printCard ?? "").trim() || null,
+            piezas: Number(data.piezas) || 0,
+            uom: "",
+            maquina: String(data.maquina ?? "").trim(),
+        };
 
         // Obtener tipoEmpaque de DestinyDatos
-        const tipoEmpaque = await fetchTipoEmpaqueFromDestinyDatos(data.claveProducto);
+        const tipoEmpaque = await fetchTipoEmpaqueFromDestinyDatos(claveProducto);
 
-        await fetchComplementaryData(data, 'DESTINY', tipoEmpaque);
+        await fetchComplementaryData(etiquetaData, 'DESTINY', tipoEmpaque, {
+            piezasPorCaja: Number(data.piezas) || 0,
+        });
 
     } catch (err: any) {
         console.error("Error Destiny:", err);
