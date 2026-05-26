@@ -248,8 +248,11 @@ interface TarimaEliminadaEvent {
 const CLOSE_TARIMA_STATUS_OPTIONS = [
     { value: "Aprobada", label: "Sin Hallazgos" },
     { value: "Con hallazgos", label: "Con Hallazgos" },
+    { value: "Desviación", label: "Desviación" },
     { value: "Rechazada", label: "Rechazada" },
 ] as const;
+
+const CLOSE_TARIMA_DEVIATION_STATUS = "Desviación";
 
 const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
     const normalizedStatus = (status || "").trim().toLowerCase();
@@ -261,6 +264,7 @@ const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
     ) {
         return "Con Hallazgos";
     }
+    if (normalizedStatus === "desviación" || normalizedStatus === "desviacion") return "Desviación";
     if (normalizedStatus === "rechazada") return "Rechazada";
     return status || "Sin estatus";
 };
@@ -358,9 +362,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [evidenceByDetalleId, setEvidenceByDetalleId] = useState<Record<number, EvidenciaCajaItem[]>>({});
     const [isEvidenceListLoadingByDetalleId, setIsEvidenceListLoadingByDetalleId] = useState<Record<number, boolean>>({});
     const [isCloseTarimaModalOpen, setIsCloseTarimaModalOpen] = useState(false);
+    const [isDeviationNoticeOpen, setIsDeviationNoticeOpen] = useState(false);
     const [closeTarimaEstatusCierre, setCloseTarimaEstatusCierre] = useState("");
     const [closeTarimaAgregarComentario, setCloseTarimaAgregarComentario] = useState(false);
     const [closeTarimaComentario, setCloseTarimaComentario] = useState("");
+    const [usuarioAutoriza, setUsuarioAutoriza] = useState("");
     const [reopeningTarimaId, setReopeningTarimaId] = useState<number | null>(null);
     const [reopenTarimaError, setReopenTarimaError] = useState<string | null>(null);
     const [reopenTarimaSuccess, setReopenTarimaSuccess] = useState<string | null>(null);
@@ -1912,6 +1918,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
+        if (closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS && !usuarioAutoriza.trim()) {
+            setCloseTarimaError("Capture el ejecutivo de Ventas que autoriza la desviación.");
+            return;
+        }
+
         setIsClosingTarima(true);
 
         try {
@@ -1927,6 +1938,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     estatusCierre: closeTarimaEstatusCierre,
                     motivo: closeTarimaAgregarComentario ? closeTarimaComentario.trim() : "",
                     usuario,
+                    usuarioAutoriza: closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS
+                        ? usuarioAutoriza.trim()
+                        : null,
                 }),
             });
 
@@ -1952,6 +1966,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setCloseTarimaEstatusCierre("");
             setCloseTarimaAgregarComentario(false);
             setCloseTarimaComentario("");
+            setUsuarioAutoriza("");
             setTimeout(() => setIsCloseTarimaModalOpen(false), 600);
             fetchTarimasActivas();
             fetchTarimasTerminadas();
@@ -3211,6 +3226,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         setCloseTarimaEstatusCierre("");
                                         setCloseTarimaAgregarComentario(false);
                                         setCloseTarimaComentario("");
+                                        setUsuarioAutoriza("");
+                                        setIsDeviationNoticeOpen(true);
                                         setIsCloseTarimaModalOpen(true);
                                     }}
                                     disabled={
@@ -3286,6 +3303,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 const estatusCierreClass =
                                     estatusCierre.toLowerCase() === "sin hallazgos"
                                         ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                        : estatusCierre.toLowerCase() === "desviación"
+                                            ? "bg-orange-100 text-orange-700 border border-orange-200"
                                         : estatusCierre.toLowerCase() === "rechazada"
                                             ? "bg-destructive/10 text-destructive border border-destructive/20"
                                             : "bg-amber-100 text-amber-700 border border-amber-200";
@@ -3753,7 +3772,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => setIsCloseTarimaModalOpen(false)}
+                                onClick={() => {
+                                    setUsuarioAutoriza("");
+                                    setIsDeviationNoticeOpen(false);
+                                    setIsCloseTarimaModalOpen(false);
+                                }}
                                 disabled={isClosingTarima}
                             >
                                 &times;
@@ -3771,7 +3794,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </Label>
                                 <Select
                                     value={closeTarimaEstatusCierre}
-                                    onValueChange={setCloseTarimaEstatusCierre}
+                                    onValueChange={(value) => {
+                                        setCloseTarimaEstatusCierre(value);
+                                        if (value !== CLOSE_TARIMA_DEVIATION_STATUS) {
+                                            setUsuarioAutoriza("");
+                                        }
+                                    }}
                                     disabled={isClosingTarima}
                                 >
                                     <SelectTrigger id="estatusCierreTarima" className="w-full h-12">
@@ -3786,6 +3814,24 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            {closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="usuarioAutorizaTarima" className="text-card-foreground">
+                                        ¿Qué ejecutivo de Ventas autoriza? <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Input
+                                        id="usuarioAutorizaTarima"
+                                        type="text"
+                                        required
+                                        value={usuarioAutoriza}
+                                        onChange={(e) => setUsuarioAutoriza(e.target.value)}
+                                        placeholder="Ej. carlos.ventas"
+                                        disabled={isClosingTarima}
+                                        maxLength={100}
+                                    />
+                                </div>
+                            )}
 
                             <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-sm font-medium text-card-foreground">
@@ -3832,7 +3878,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <Button
                                     type="submit"
                                     className="flex-1 h-14 text-base"
-                                    disabled={isClosingTarima}
+                                    disabled={
+                                        isClosingTarima ||
+                                        (
+                                            closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS &&
+                                            !usuarioAutoriza.trim()
+                                        )
+                                    }
                                 >
                                     {isClosingTarima ? (
                                         <>
@@ -3847,13 +3899,42 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     type="button"
                                     variant="outline"
                                     className="flex-1 h-14 text-base"
-                                    onClick={() => setIsCloseTarimaModalOpen(false)}
+                                    onClick={() => {
+                                        setUsuarioAutoriza("");
+                                        setIsDeviationNoticeOpen(false);
+                                        setIsCloseTarimaModalOpen(false);
+                                    }}
                                     disabled={isClosingTarima}
                                 >
                                     Cancelar
                                 </Button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {isDeviationNoticeOpen && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+                        <div className="flex items-start gap-3">
+                            <div className="mt-0.5 rounded-full bg-orange-100 p-2 text-orange-700">
+                                <AlertCircle className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-1">
+                                <h3 className="text-lg font-bold text-card-foreground">Nueva opción: Desviación</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    Si cierras la tarima como Desviación, deberás capturar el ejecutivo de Ventas que autoriza.
+                                </p>
+                            </div>
+                        </div>
+                        <Button
+                            type="button"
+                            className="w-full h-11"
+                            onClick={() => setIsDeviationNoticeOpen(false)}
+                        >
+                            Entendido
+                        </Button>
                     </div>
                 </div>
             )}
