@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-const ANNOUNCEMENT_STORAGE_KEY = "destiny-consecutivos-precargados-v1"
+const ANNOUNCEMENT_STORAGE_KEY = "destiny-consecutivos-sispro-turno-v2"
 
 export function UpdateAnnouncementModal() {
   const [open, setOpen] = useState(false)
@@ -37,7 +37,7 @@ export function UpdateAnnouncementModal() {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader className="gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
             <Megaphone className="h-6 w-6 text-primary" />
@@ -46,13 +46,22 @@ export function UpdateAnnouncementModal() {
             <DialogTitle>Actualización en producto Destiny</DialogTitle>
             <DialogDescription className="text-base leading-6">
               Ya no es necesario ingresar el consecutivo manual. Los consecutivos
-              ya vienen precargados.
+              ahora son alimentados por SISPRO.
             </DialogDescription>
           </div>
         </DialogHeader>
 
         <div className="rounded-lg border bg-muted/40 p-4 text-sm leading-6 text-foreground">
           Solo elige la máquina, selecciona el consecutivo y continúa tu proceso.
+          Si ves consecutivos iguales, verifica el turno para diferenciarlos.
+        </div>
+
+        <div className="flex justify-center">
+          <img
+            src="/turno.png"
+            alt="Guia para identificar el turno de un consecutivo Destiny"
+            className="max-h-[45vh] w-auto max-w-full rounded-md border"
+          />
         </div>
 
         <DialogFooter>
