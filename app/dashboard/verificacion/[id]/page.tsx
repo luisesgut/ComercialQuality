@@ -90,7 +90,11 @@ interface DestinyCajaDisponible {
     trazabilidad: string;
     piezas: number;
     yaRevisada: boolean;
+    requiereConfirmacion: boolean;
+    trazabilidadAnterior: string | null;
     detalleId: number | null;
+    otSispro: string | null;
+    turno: string | null;
 }
 
 interface DestinyMaquinaDisponible {
@@ -290,9 +294,12 @@ const matchesDestinyCajaQuery = (caja: DestinyCajaDisponible, query: string) => 
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return true;
     const consecutivo = caja.trazabilidad.slice(-3);
-    const haystack = `${caja.trazabilidad} ${consecutivo}`.toLowerCase();
+    const haystack = `${caja.trazabilidad} ${consecutivo} ${caja.otSispro ?? ""} ${caja.turno ?? ""}`.toLowerCase();
     return haystack.includes(normalizedQuery);
 };
+
+const getDestinyCajaOtTurnoLabel = (caja: DestinyCajaDisponible) =>
+    `${caja.otSispro || "Sin OT"}  |  ${caja.turno || "Sin turno"}`;
 
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
@@ -301,6 +308,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const qtyUomVideoRef = useRef<HTMLVideoElement | null>(null);
     const qtyUomStreamRef = useRef<MediaStream | null>(null);
     const qtyUomRafRef = useRef<number | null>(null);
+    const locallyReviewedDestinyCajasRef = useRef(new Set<string>());
+    const locallyPendingDestinyCajasRef = useRef(new Set<string>());
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -331,6 +340,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [isDestinyCajasLoading, setIsDestinyCajasLoading] = useState(false);
     const [destinyCajasError, setDestinyCajasError] = useState<string | null>(null);
     const [selectedDestinyCaja, setSelectedDestinyCaja] = useState<DestinyCajaDisponible | null>(null);
+    const [destinyCajaPendingConfirmation, setDestinyCajaPendingConfirmation] = useState<DestinyCajaDisponible | null>(null);
     const [destinySearchByMachine, setDestinySearchByMachine] = useState<Record<number, string>>({});
     const [destinyStatusFilter, setDestinyStatusFilter] = useState<DestinyStatusFilter>("all");
     const [openMaquinaAccordion, setOpenMaquinaAccordion] = useState<string>("");
@@ -533,7 +543,20 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     throw new Error(`Error (${response.status}) al obtener cajas disponibles de Destiny.`);
                 }
 
-                const data: DestinyCajasDisponiblesResponse = await response.json();
+                const rawData: DestinyCajasDisponiblesResponse = await response.json();
+                const data: DestinyCajasDisponiblesResponse = {
+                    ...rawData,
+                    maquinas: (rawData.maquinas ?? []).map((maquina) => ({
+                        ...maquina,
+                        cajas: (maquina.cajas ?? []).map((caja) =>
+                            locallyReviewedDestinyCajasRef.current.has(caja.trazabilidad)
+                                ? { ...caja, yaRevisada: true, requiereConfirmacion: false }
+                                : locallyPendingDestinyCajasRef.current.has(caja.trazabilidad)
+                                  ? { ...caja, yaRevisada: false, requiereConfirmacion: false }
+                                : caja
+                        ),
+                    })),
+                };
                 setDestinyCajasDisponibles(data);
                 setDestinySearchByMachine((current) => {
                     const next: Record<number, string> = {};
@@ -632,6 +655,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setCloseTarimaError(null);
         setCloseTarimaSuccess(null);
         setSelectedDestinyCaja(null);
+        setDestinyCajaPendingConfirmation(null);
         setDestinySearchByMachine({});
     }, [selectedTarima]);
 
@@ -732,6 +756,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setDestinyCajasDisponibles(null);
             setDestinyCajasError(null);
             setSelectedDestinyCaja(null);
+            setDestinyCajaPendingConfirmation(null);
             setDestinySearchByMachine({});
             setDestinyStatusFilter("all");
             return;
@@ -821,12 +846,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         ...prev,
                         maquinas: prev.maquinas.map(maquina => ({
                             ...maquina,
-                            cajasRevisadas: maquina.cajas.some(c => c.trazabilidad === trazabilidad && !c.yaRevisada)
-                                ? maquina.cajasRevisadas + 1
-                                : maquina.cajasRevisadas,
                             cajas: maquina.cajas.map(caja =>
                                 caja.trazabilidad === trazabilidad
-                                    ? { ...caja, yaRevisada: true }
+                                    ? { ...caja, yaRevisada: true, requiereConfirmacion: false }
                                     : caja
                             ),
                         })),
@@ -859,9 +881,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         ...prev,
                         maquinas: prev.maquinas.map(maquina => ({
                             ...maquina,
-                            cajasRevisadas: maquina.cajas.some(c => c.trazabilidad === trazabilidad && c.yaRevisada)
-                                ? maquina.cajasRevisadas - 1
-                                : maquina.cajasRevisadas,
                             cajas: maquina.cajas.map(caja =>
                                 caja.trazabilidad === trazabilidad
                                     ? { ...caja, yaRevisada: false }
@@ -1114,6 +1133,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const renderDestinyCajaButton = (caja: DestinyCajaDisponible) => {
         const isSelected = selectedDestinyCaja?.trazabilidad === caja.trazabilidad;
         const consecutivo = caja.trazabilidad.slice(-3);
+        const otTurno = getDestinyCajaOtTurnoLabel(caja);
 
         return (
             <button
@@ -1121,6 +1141,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 type="button"
                 onClick={() => {
                     if (caja.yaRevisada || isRegisteringScan) return;
+                    if (caja.requiereConfirmacion) {
+                        setDestinyCajaPendingConfirmation(caja);
+                        return;
+                    }
                     setSelectedDestinyCaja(caja);
                     setTrazabilidadInput(caja.trazabilidad);
                     setPiezasAuditadasInput(String(caja.piezas));
@@ -1131,6 +1155,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 className={`rounded-xl border p-3 text-left transition-colors ${
                     caja.yaRevisada
                         ? "cursor-not-allowed border-emerald-200 bg-emerald-50/70 opacity-80"
+                        : caja.requiereConfirmacion
+                          ? "border-amber-300 bg-amber-50 hover:border-amber-400"
                         : isSelected
                           ? "border-primary bg-primary/10 shadow-sm"
                           : "border-border bg-background hover:border-primary/40"
@@ -1143,6 +1169,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         </p>
                         <p className="mt-1 text-3xl font-black leading-none text-foreground">
                             {consecutivo}
+                        </p>
+                        <p className="mt-3 text-xs font-semibold text-foreground">
+                            OT: {otTurno}
                         </p>
                         <p className="mt-3 text-xs font-medium text-muted-foreground">
                             Trazabilidad
@@ -1158,6 +1187,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                         <Badge className="border border-emerald-200 bg-emerald-100 text-emerald-700">
                             Validada
                         </Badge>
+                    ) : caja.requiereConfirmacion ? (
+                        <Badge className="border border-amber-300 bg-amber-100 text-amber-800">
+                            Confirmar
+                        </Badge>
                     ) : isSelected ? (
                         <Badge>Seleccionada</Badge>
                     ) : (
@@ -1166,6 +1199,52 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 </div>
             </button>
         );
+    };
+
+    const handleConfirmDestinyCajaAsReviewed = () => {
+        if (!destinyCajaPendingConfirmation) return;
+        const trazabilidad = destinyCajaPendingConfirmation.trazabilidad;
+        locallyReviewedDestinyCajasRef.current.add(trazabilidad);
+        locallyPendingDestinyCajasRef.current.delete(trazabilidad);
+
+        setDestinyCajasDisponibles((current) => {
+            if (!current) return current;
+            return {
+                ...current,
+                maquinas: current.maquinas.map((maquina) => ({
+                    ...maquina,
+                    cajas: maquina.cajas.map((caja) =>
+                        caja.trazabilidad === trazabilidad
+                            ? { ...caja, yaRevisada: true, requiereConfirmacion: false }
+                            : caja
+                    ),
+                })),
+            };
+        });
+        setDestinyCajaPendingConfirmation(null);
+    };
+
+    const handleKeepDestinyCajaPending = () => {
+        if (!destinyCajaPendingConfirmation) return;
+        const trazabilidad = destinyCajaPendingConfirmation.trazabilidad;
+        locallyPendingDestinyCajasRef.current.add(trazabilidad);
+        locallyReviewedDestinyCajasRef.current.delete(trazabilidad);
+
+        setDestinyCajasDisponibles((current) => {
+            if (!current) return current;
+            return {
+                ...current,
+                maquinas: current.maquinas.map((maquina) => ({
+                    ...maquina,
+                    cajas: maquina.cajas.map((caja) =>
+                        caja.trazabilidad === trazabilidad
+                            ? { ...caja, yaRevisada: false, requiereConfirmacion: false }
+                            : caja
+                    ),
+                })),
+            };
+        });
+        setDestinyCajaPendingConfirmation(null);
     };
 
     const resolveEvidenceUrl = (foto: string) => {
@@ -4103,6 +4182,54 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     }}
                     onClose={() => setIsQrScannerOpen(false)}
                 />
+            )}
+
+            {destinyCajaPendingConfirmation && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-5">
+                        <div className="flex items-start gap-3">
+                            <div className="mt-0.5 rounded-full bg-amber-100 p-2 text-amber-700">
+                                <AlertCircle className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-card-foreground">
+                                    Esta caja podría ya estar registrada
+                                </h3>
+                                <div className="mt-3 space-y-1 text-sm text-muted-foreground">
+                                    <p>
+                                        <span className="font-semibold text-foreground">Consecutivo:</span>{" "}
+                                        {destinyCajaPendingConfirmation.trazabilidad.slice(-3)}
+                                    </p>
+                                    <p>
+                                        <span className="font-semibold text-foreground">OT:</span>{" "}
+                                        {getDestinyCajaOtTurnoLabel(destinyCajaPendingConfirmation)}
+                                    </p>
+                                    <p className="break-all">
+                                        <span className="font-semibold text-foreground">Registro previo:</span>{" "}
+                                        {destinyCajaPendingConfirmation.trazabilidadAnterior || "No disponible"}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-3 sm:flex-row">
+                            <Button
+                                type="button"
+                                className="flex-1"
+                                onClick={handleConfirmDestinyCajaAsReviewed}
+                            >
+                                Si, ya la verifique
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="flex-1"
+                                onClick={handleKeepDestinyCajaPending}
+                            >
+                                No, esta pendiente de verificar
+                            </Button>
+                        </div>
+                    </div>
+                </div>
             )}
 
         </div>
