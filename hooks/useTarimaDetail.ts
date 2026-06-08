@@ -11,6 +11,9 @@ export interface TarimaCaja {
   cantidad?: number
   piezasAuditadas?: number
   tieneDefectos?: boolean
+  esRetrabajo?: boolean
+  usuarioRetrabajo?: string | null
+  fechaRetrabajo?: string | null
   comentarios?: string | null
   horaEscaneo?: string
   usuarioValidador?: string | null

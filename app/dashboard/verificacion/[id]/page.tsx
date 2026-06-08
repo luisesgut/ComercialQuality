@@ -20,7 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, CheckCircle2, Camera, Trash2, ExternalLink, ChevronsUpDown, ScanLine, Search, ChevronDown } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, CheckCircle2, Camera, Trash2, ExternalLink, ChevronsUpDown, ScanLine, Search, ChevronDown, RefreshCcw } from 'lucide-react';
 import { QrScannerModal } from "@/components/QrScannerModal";
 
 // URL Base de la API
@@ -47,12 +48,31 @@ interface TarimaActivaDefecto {
     comentario: string | null;
 }
 
+interface PasadaCaja {
+    detalleId: number;
+    numeroPasada: number;
+    fechaEscaneo: string;
+    usuarioValidador: string;
+    tieneDefectos: boolean;
+    comentariosDefecto: string | null;
+    tarimaId: number;
+    numeroTarima: number;
+    piezasAuditadas: number;
+}
+
 interface TarimaActivaCaja {
     detalleId: number;
     identificador: string;
     cantidad: number;
     piezasAuditadas: number;
     tieneDefectos: boolean;
+    esRetrabajo?: boolean;
+    usuarioRetrabajo?: string | null;
+    fechaRetrabajo?: string | null;
+    totalPasadas?: number;
+    numeroPasada?: number;
+    pasadas?: PasadaCaja[];
+    claveAgrupacion?: string;
     comentarios: string | null;
     horaEscaneo: string;
     usuarioValidador?: string | null;
@@ -117,6 +137,9 @@ interface RegistrarEscaneoResponse {
     mensajeEstado?: string;
     porcentajeAvance?: number;
     numeroCaja?: number;
+    esRetrabajoDetectado?: boolean;
+    historialPasadas?: PasadaCaja[];
+    mensajeRetrabajo?: string;
 }
 
 interface TarimaTerminadaCaja {
@@ -125,6 +148,13 @@ interface TarimaTerminadaCaja {
     cantidad: number;
     piezasAuditadas: number;
     tieneDefectos: boolean;
+    esRetrabajo?: boolean;
+    usuarioRetrabajo?: string | null;
+    fechaRetrabajo?: string | null;
+    totalPasadas?: number;
+    numeroPasada?: number;
+    pasadas?: PasadaCaja[];
+    claveAgrupacion?: string;
     comentarios: string | null;
     horaEscaneo: string;
     usuarioValidador?: string | null;
@@ -243,6 +273,7 @@ const CLOSE_TARIMA_STATUS_OPTIONS = [
 ] as const;
 
 const CLOSE_TARIMA_DEVIATION_STATUS = "Desviación";
+const RETRABAJO_NOTICE_STORAGE_VERSION = "v1";
 
 const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
     const normalizedStatus = (status || "").trim().toLowerCase();
@@ -270,6 +301,45 @@ const getCajaUsuarioLabel = (caja: TarimaActivaCaja) =>
 
 const getCajaTerminadaUsuarioLabel = (caja: TarimaTerminadaCaja) =>
     caja.usuarioValidador?.trim() || null;
+
+const formatRetrabajoDate = (value?: string | null) => {
+    if (!value) return "Sin registro";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString("es-MX", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+};
+
+const CajaRetrabajoBadge = ({
+    caja,
+}: {
+    caja: Pick<TarimaActivaCaja | TarimaTerminadaCaja, "esRetrabajo" | "usuarioRetrabajo" | "fechaRetrabajo">;
+}) => {
+    if (!caja.esRetrabajo) return null;
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full shrink-0">
+                    <RefreshCcw className="w-3 h-3" />
+                    Retrabajo
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-64 text-left">
+                <div className="space-y-1">
+                    <p className="font-medium">Caja reescaneada</p>
+                    <p>Usuario: {caja.usuarioRetrabajo?.trim() || "Sin registro"}</p>
+                    <p>Fecha: {formatRetrabajoDate(caja.fechaRetrabajo)}</p>
+                </div>
+            </TooltipContent>
+        </Tooltip>
+    );
+};
 
 const getTarimaReaperturaCount = (tarima?: { conteoReaperturas?: number | null } | null) => {
     const count = Number(tarima?.conteoReaperturas ?? 0);
@@ -372,6 +442,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [registerStatusMessage, setRegisterStatusMessage] = useState<string | null>(null);
     const [lastDetalleId, setLastDetalleId] = useState<number | null>(null);
     const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
+    const [isRetrabajoNoticeOpen, setIsRetrabajoNoticeOpen] = useState(false);
+    const [isRetrabajoModalOpen, setIsRetrabajoModalOpen] = useState(false);
+    const [retrabajoHistorial, setRetrabajoHistorial] = useState<PasadaCaja[]>([]);
+    const [retrabajoMensaje, setRetrabajoMensaje] = useState("");
+    const [pendingRetrabajoPayload, setPendingRetrabajoPayload] = useState<Record<string, any> | null>(null);
     const [evidenceTargetId, setEvidenceTargetId] = useState<number | null>(null);
     const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([]);
     const [isEvidenceUploading, setIsEvidenceUploading] = useState(false);
@@ -405,6 +480,22 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
     const selectedTarimaIdRef = useRef<number | null>(null);
+    const getRetrabajoNoticeStorageKey = () => {
+        const userKey = String(user?.id || user?.name || currentUserName || "").trim();
+        if (!userKey || userKey === "USUARIO DESCONOCIDO") return null;
+        return `verification-retrabajo-notice:${RETRABAJO_NOTICE_STORAGE_VERSION}:${userKey}`;
+    };
+    const handleCloseRetrabajoNotice = () => {
+        const storageKey = getRetrabajoNoticeStorageKey();
+        if (storageKey) {
+            try {
+                window.localStorage.setItem(storageKey, "1");
+            } catch {
+                // ignore localStorage errors
+            }
+        }
+        setIsRetrabajoNoticeOpen(false);
+    };
     const getRequiredCurrentUserName = () => {
         const resolvedUserName = (user?.name || currentUserName || "").trim();
         if (!resolvedUserName || resolvedUserName === "USUARIO DESCONOCIDO") {
@@ -566,7 +657,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     if (!current?.trazabilidad) return null;
                     const matchedCaja = data.maquinas
                         ?.flatMap((maquina) => maquina.cajas ?? [])
-                        .find((caja) => caja.trazabilidad === current.trazabilidad && !caja.yaRevisada);
+                        .find((caja) => caja.trazabilidad === current.trazabilidad);
                     return matchedCaja ?? null;
                 });
             } catch (err: any) {
@@ -644,6 +735,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setCurrentUserName(user.name);
         }
     }, [user]);
+
+    useEffect(() => {
+        const storageKey = getRetrabajoNoticeStorageKey();
+        if (!storageKey) return;
+
+        try {
+            if (window.localStorage.getItem(storageKey) === "1") return;
+        } catch {
+            // Si localStorage falla, mostrar el aviso en esta sesión.
+        }
+
+        setIsRetrabajoNoticeOpen(true);
+    }, [user?.id, user?.name, currentUserName]);
 
     useEffect(() => {
         setRegisterError(null);
@@ -1135,20 +1239,22 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 key={caja.trazabilidad}
                 type="button"
                 onClick={() => {
-                    if (caja.yaRevisada || isRegisteringScan) return;
+                    if (isRegisteringScan) return;
                     setSelectedDestinyCaja(caja);
                     setTrazabilidadInput(caja.trazabilidad);
                     setPiezasAuditadasInput(String(caja.piezas));
                     setRegisterError(null);
                     setOpenMaquinaAccordion("");
                 }}
-                disabled={caja.yaRevisada || isRegisteringScan}
+                disabled={isRegisteringScan}
                 className={`rounded-xl border p-3 text-left transition-colors ${
-                    caja.yaRevisada
-                        ? "cursor-not-allowed border-emerald-200 bg-emerald-50/70 opacity-80"
-                        : isSelected
-                          ? "border-primary bg-primary/10 shadow-sm"
-                          : "border-border bg-background hover:border-primary/40"
+                    isSelected
+                        ? caja.yaRevisada
+                            ? "border-amber-300 bg-amber-50 shadow-sm"
+                            : "border-primary bg-primary/10 shadow-sm"
+                    : caja.yaRevisada
+                        ? "border-emerald-200 bg-emerald-50/70 hover:border-amber-300 hover:bg-amber-50"
+                        : "border-border bg-background hover:border-primary/40"
                 }`}
             >
                 <div className="flex items-start justify-between gap-3">
@@ -1175,10 +1281,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             {caja.piezas} piezas
                         </p>
                     </div>
-                    {caja.yaRevisada ? (
-                        <Badge className="border border-emerald-200 bg-emerald-100 text-emerald-700">
-                            Validada
+                    {isSelected && caja.yaRevisada ? (
+                        <Badge className="border border-amber-200 bg-amber-100 text-amber-800">
+                            Retrabajo
                         </Badge>
+                    ) : caja.yaRevisada ? (
+                        <div className="flex flex-col items-end gap-1">
+                            <Badge className="border border-emerald-200 bg-emerald-100 text-emerald-700">
+                                Validada
+                            </Badge>
+                            <span className="text-[10px] font-semibold text-amber-700">
+                                Seleccionar para retrabajo
+                            </span>
+                        </div>
                     ) : isSelected ? (
                         <Badge>Seleccionada</Badge>
                     ) : (
@@ -1701,6 +1816,14 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
 
             const data: RegistrarEscaneoResponse = await response.json();
+            if (data.esRetrabajoDetectado) {
+                setRetrabajoHistorial(data.historialPasadas ?? []);
+                setRetrabajoMensaje(data.mensajeRetrabajo ?? "");
+                setPendingRetrabajoPayload({ ...payload, confirmarRetrabajo: true });
+                setIsRetrabajoModalOpen(true);
+                setIsRegisteringScan(false);
+                return;
+            }
 
             setRegisterSuccess("Caja registrada correctamente.");
             if (data?.mensajeEstado) {
@@ -1755,6 +1878,71 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setRegisterError(err.message || "Error de conexión al registrar la caja.");
         } finally {
             setIsRegisteringScan(false);
+        }
+    };
+
+    const handleConfirmarRetrabajo = async () => {
+        if (!pendingRetrabajoPayload || !selectedTarima) return;
+
+        setRegisterError(null);
+        setRegisterSuccess(null);
+        setRegisterStatusMessage(null);
+        setIsRetrabajoModalOpen(false);
+        setIsRegisteringScan(true);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/Verificacion/registrar-escaneo`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(pendingRetrabajoPayload),
+            });
+
+            if (!response.ok) {
+                throw new Error(await parseApiError(response, "Error al confirmar retrabajo."));
+            }
+
+            const data: RegistrarEscaneoResponse = await response.json();
+            const numeroCaja = Number(data?.numeroCaja ?? selectedTarima.cajasLlevamos + 1);
+            const defectosCapturados = defectosCajaInput.filter((item) =>
+                item.defectoId !== null || item.cantidad.trim() !== "" || item.comentario.trim() !== ""
+            );
+
+            if (data?.ultimoDetalleId) {
+                const detalleId = Number(data.ultimoDetalleId);
+                setLastDetalleId(detalleId);
+
+                if (tieneDefectosInput) {
+                    await registerCajaDefectos({
+                        detalleId,
+                        tarimaId: selectedTarima.tarimaId,
+                        numeroCaja,
+                        defectosCapturados,
+                    });
+                    fetchDefectosResumen();
+                    setEvidenceTargetId(detalleId);
+                    setIsEvidenceModalOpen(true);
+                }
+            } else {
+                setLastDetalleId(null);
+            }
+
+            setRegisterSuccess("Retrabajo registrado correctamente.");
+            setRegisterStatusMessage(data?.mensajeEstado ?? `Caja #${numeroCaja} registrada como retrabajo.`);
+            resetScanForm();
+            fetchTarimasActivas();
+            fetchTarimasTerminadas();
+            fetchTarimaActivaDetalle(selectedTarima.tarimaId);
+            fetchDashboardData();
+            if (currentVerificationType === "DESTINY") {
+                fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""), { silent: true });
+            }
+        } catch (err: any) {
+            setRegisterError(err.message || "Error al registrar retrabajo.");
+        } finally {
+            setIsRegisteringScan(false);
+            setPendingRetrabajoPayload(null);
         }
     };
 
@@ -2476,7 +2664,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 {selectedTarimaDetalle.cajas.map((caja) => {
                                     const canManageCajaEvidence = cajaCanReceiveEvidence(caja.detalleId);
                                     return (
-                                    <div key={caja.detalleId} className="rounded-md border border-border px-3 py-2.5 bg-card">
+                                    <div
+                                        key={caja.detalleId}
+                                        className={`rounded-md border px-3 py-2.5 bg-card ${
+                                            caja.esRetrabajo ? "border-amber-200 bg-amber-50/40" : "border-border"
+                                        }`}
+                                    >
                                         <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0">
                                                 <p className="text-sm font-medium truncate">{caja.identificador}</p>
@@ -2493,6 +2686,13 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">
+                                                <CajaRetrabajoBadge caja={caja} />
+                                                {(caja.totalPasadas ?? 0) > 1 && (
+                                                    <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
+                                                        <RefreshCcw className="w-3 h-3" />
+                                                        Pasada #{caja.numeroPasada} de {caja.totalPasadas}
+                                                    </span>
+                                                )}
                                                 {caja.tieneDefectos && (
                                                     <span className="text-[10px] font-semibold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full">
                                                         Con defecto
@@ -2523,6 +2723,21 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                 </button>
                                             </div>
                                         </div>
+                                        {(caja.pasadas?.length ?? 0) > 1 && (
+                                            <details className="mt-2 text-xs">
+                                                <summary className="cursor-pointer text-amber-700 font-medium">
+                                                    Ver historial ({caja.pasadas!.length} pasadas)
+                                                </summary>
+                                                <div className="mt-1 space-y-1">
+                                                    {caja.pasadas!.map((pasada) => (
+                                                        <p key={pasada.detalleId} className="text-muted-foreground">
+                                                            Pasada #{pasada.numeroPasada} · {new Date(pasada.fechaEscaneo).toLocaleString()} · {pasada.usuarioValidador}
+                                                            {pasada.tieneDefectos ? " · Con defecto" : ""}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            </details>
+                                        )}
                                         {caja.tieneDefectos && Array.isArray(caja.defectos) && caja.defectos.length > 0 && (
                                             <details className="mt-2 text-xs">
                                                 <summary className="cursor-pointer text-destructive font-medium">
@@ -2821,8 +3036,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     )}
 
                                     {selectedDestinyCaja && (
-                                        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-                                            <p className="text-sm font-semibold text-foreground">Caja seleccionada</p>
+                                        <div className={`rounded-xl border p-4 ${
+                                            selectedDestinyCaja.yaRevisada
+                                                ? "border-amber-300 bg-amber-50"
+                                                : "border-primary/30 bg-primary/5"
+                                        }`}>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <p className="text-sm font-semibold text-foreground">Caja seleccionada</p>
+                                                {selectedDestinyCaja.yaRevisada && (
+                                                    <Badge className="border border-amber-200 bg-amber-100 text-amber-800">
+                                                        Se registrará como retrabajo
+                                                    </Badge>
+                                                )}
+                                            </div>
                                             <p className="mt-1 text-sm text-muted-foreground break-all">
                                                 {selectedDestinyCaja.trazabilidad}
                                             </p>
@@ -3240,10 +3466,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                 <span
                                                                     key={caja.detalleId}
                                                                     className={`text-[10px] px-1.5 py-0.5 rounded font-medium leading-none ${
-                                                                        caja.tieneDefectos
+                                                                        caja.esRetrabajo
+                                                                            ? "bg-amber-100 text-amber-800 border border-amber-200"
+                                                                        : caja.tieneDefectos
                                                                             ? "bg-destructive/10 text-destructive border border-destructive/20"
                                                                             : "bg-muted text-muted-foreground"
                                                                     }`}
+                                                                    title={
+                                                                        caja.esRetrabajo
+                                                                            ? `Retrabajo: ${caja.usuarioRetrabajo?.trim() || "Sin registro"} · ${formatRetrabajoDate(caja.fechaRetrabajo)}`
+                                                                            : undefined
+                                                                    }
                                                                 >
                                                                     {caja.identificador}
                                                                 </span>
@@ -3310,7 +3543,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                     const defectosCaja = Array.isArray(caja.defectos) ? caja.defectos : [];
                                                     const usuarioCaja = getCajaTerminadaUsuarioLabel(caja);
                                                     return (
-                                                        <div key={caja.detalleId} className="flex items-start justify-between gap-3 px-4 py-3">
+                                                        <div
+                                                            key={caja.detalleId}
+                                                            className={`flex items-start justify-between gap-3 px-4 py-3 ${
+                                                                caja.esRetrabajo ? "bg-amber-50/40" : ""
+                                                            }`}
+                                                        >
                                                             <div className="min-w-0">
                                                                 <p className="font-medium text-sm">{caja.identificador}</p>
                                                                 <p className="text-xs text-muted-foreground">{caja.cantidad} pz · {caja.piezasAuditadas} auditadas</p>
@@ -3341,6 +3579,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                                                 {renderEvidenceGallery(caja.detalleId, caja.fotos, { compact: true })}
                                                             </div>
                                                             <div className="flex items-center gap-2 shrink-0">
+                                                                <CajaRetrabajoBadge caja={caja} />
                                                                 {caja.tieneDefectos && (
                                                                     <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2.5 py-1 rounded-full">
                                                                         Con defecto
@@ -4011,6 +4250,130 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </Button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {isRetrabajoNoticeOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 space-y-5">
+                        <div className="flex items-start gap-3 border-b pb-4">
+                            <div className="rounded-full bg-amber-100 p-2 text-amber-700 shrink-0">
+                                <RefreshCcw className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-1">
+                                <h3 className="text-lg font-bold text-card-foreground">Nuevo: retrabajo por caja individual</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    Ya puedes retrabajar una caja individual varias veces para todos los tipos de producto.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 text-sm text-slate-700">
+                            <div className="rounded-lg border border-border bg-muted/30 p-3">
+                                <p className="font-semibold text-card-foreground">Productos con consecutivo</p>
+                                <p className="mt-1 text-muted-foreground">
+                                    Agrega la caja capturando el consecutivo. Si corresponde a retrabajo, el sistema te avisara antes de registrarla.
+                                </p>
+                            </div>
+                            <div className="rounded-lg border border-border bg-muted/30 p-3">
+                                <p className="font-semibold text-card-foreground">Productos con trazabilidad</p>
+                                <p className="mt-1 text-muted-foreground">
+                                    Busca la caja en la seccion de ya validadas, dale click para seleccionarla y agregala a la nueva tarima para retrabajarla.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end pt-1">
+                            <Button className="h-11 px-5" onClick={handleCloseRetrabajoNotice}>
+                                Entendido
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isRetrabajoModalOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-5">
+                        <div className="flex items-start gap-3 border-b pb-4">
+                            <div className="rounded-full bg-amber-100 p-2 text-amber-700 shrink-0">
+                                <RefreshCcw className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold">Caja ya revisada — ¿Es retrabajo?</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    {retrabajoMensaje || "Esta caja ya tiene pasadas registradas. Confirme si desea registrarla como retrabajo."}
+                                </p>
+                            </div>
+                        </div>
+
+                        {retrabajoHistorial.length > 0 && (
+                            <div className="space-y-2">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Historial de pasadas
+                                </p>
+                                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    {retrabajoHistorial.map((pasada) => (
+                                        <div
+                                            key={pasada.detalleId}
+                                            className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm"
+                                        >
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="font-semibold">Pasada #{pasada.numeroPasada}</span>
+                                                {pasada.tieneDefectos ? (
+                                                    <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full">
+                                                        Con defecto
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                                                        Sin defecto
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                {new Date(pasada.fechaEscaneo).toLocaleString()} · {pasada.usuarioValidador} · Tarima #{pasada.numeroTarima}
+                                            </p>
+                                            {pasada.comentariosDefecto && (
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    {pasada.comentariosDefecto}
+                                                </p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-1">
+                            <Button
+                                className="flex-1 h-12"
+                                onClick={handleConfirmarRetrabajo}
+                                disabled={isRegisteringScan}
+                            >
+                                {isRegisteringScan ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Registrando...
+                                    </>
+                                ) : (
+                                    "Sí, registrar como retrabajo"
+                                )}
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="flex-1 h-12"
+                                onClick={() => {
+                                    setIsRetrabajoModalOpen(false);
+                                    setPendingRetrabajoPayload(null);
+                                    setRetrabajoHistorial([]);
+                                    setRetrabajoMensaje("");
+                                }}
+                                disabled={isRegisteringScan}
+                            >
+                                Cancelar
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}

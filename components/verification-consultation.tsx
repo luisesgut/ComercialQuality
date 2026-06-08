@@ -18,8 +18,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock, ExternalLink, Grid, HelpCircle, Layers, Loader2, Package, QrCode, Search, Truck } from "lucide-react"
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock, ExternalLink, Grid, HelpCircle, Layers, Loader2, Package, QrCode, RefreshCcw, Search, Truck } from "lucide-react"
 
 const API_BASE_URL = "http://172.16.10.31/api"
 
@@ -63,6 +64,30 @@ function getOpenTarimaBoxesGoal(tarima: VerificationLookupTarimaAbierta) {
 
 function getCajaUsuarioLabel(caja: VerificationLookupCaja) {
   return caja.usuarioValidador?.trim() || null
+}
+
+function CajaRetrabajoBadge({ caja }: { caja: VerificationLookupCaja }) {
+  if (!caja.esRetrabajo) return null
+
+  const usuarioRetrabajo = caja.usuarioRetrabajo?.trim()
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">
+          <RefreshCcw className="h-3 w-3" />
+          Retrabajo
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64 text-left">
+        <div className="space-y-1">
+          <p className="font-medium">Caja reescaneada</p>
+          <p>Usuario: {usuarioRetrabajo || "Sin registro"}</p>
+          <p>Fecha: {formatDateTime(caja.fechaRetrabajo)}</p>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function appendUniqueName(target: string[], value?: string | null) {
@@ -154,7 +179,12 @@ function CajaCard({ caja }: { caja: VerificationLookupCaja }) {
   const usuarioCaja = getCajaUsuarioLabel(caja)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+    <div
+      className={cn(
+        "rounded-lg border bg-card p-3 space-y-2",
+        caja.esRetrabajo ? "border-amber-200 bg-amber-50/40" : "border-border",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <p className="text-sm font-semibold text-card-foreground">{caja.identificador}</p>
@@ -167,6 +197,7 @@ function CajaCard({ caja }: { caja: VerificationLookupCaja }) {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          <CajaRetrabajoBadge caja={caja} />
           {caja.tieneDefectos ? (
             <Badge className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/10">
               Con defectos

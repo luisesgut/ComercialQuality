@@ -27,7 +27,9 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  RefreshCcw,
 } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface TarimaQRModalProps {
   onClose: () => void
@@ -42,6 +44,11 @@ function formatFecha(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   })
+}
+
+function formatFechaRetrabajo(iso?: string | null) {
+  if (!iso) return "Sin registro"
+  return formatFecha(iso)
 }
 
 export function TarimaQRModal({ onClose, onUpdated }: TarimaQRModalProps) {
@@ -263,6 +270,23 @@ export function TarimaQRModal({ onClose, onUpdated }: TarimaQRModalProps) {
                             <span className="text-xs font-semibold bg-destructive/10 text-destructive px-2 py-0.5 rounded-full shrink-0">
                               Defecto
                             </span>
+                          )}
+                          {caja.esRetrabajo && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full shrink-0">
+                                  <RefreshCcw className="w-3 h-3" />
+                                  Retrabajo
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-64 text-left">
+                                <div className="space-y-1">
+                                  <p className="font-medium">Caja reescaneada</p>
+                                  <p>Usuario: {caja.usuarioRetrabajo?.trim() || "Sin registro"}</p>
+                                  <p>Fecha: {formatFechaRetrabajo(caja.fechaRetrabajo)}</p>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                           {tarima.estado === "ABIERTA" && tarima.puedeEditar && (
                             <Button
