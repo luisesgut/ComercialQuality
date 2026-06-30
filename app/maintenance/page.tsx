@@ -144,8 +144,39 @@ export default function MaintenancePage() {
             font-size: 15px;
             color: #64748b;
             line-height: 1.7;
-            margin-bottom: 2.5rem;
+            margin-bottom: 1.5rem;
             animation: fadeUp 0.8s ease 0.25s both;
+          }
+
+          .feature-note {
+            display: inline-flex;
+            align-items: flex-start;
+            gap: 10px;
+            text-align: left;
+            background: rgba(6, 182, 212, 0.06);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 2.5rem;
+            animation: fadeUp 0.8s ease 0.28s both;
+          }
+
+          .feature-note .feature-icon {
+            font-size: 16px;
+            line-height: 1.5;
+            flex-shrink: 0;
+          }
+
+          .feature-note p {
+            font-size: 13px;
+            color: #94a3b8;
+            line-height: 1.6;
+            font-family: 'DM Mono', monospace;
+          }
+
+          .feature-note strong {
+            color: #67e8f9;
+            font-weight: 500;
           }
 
           .divider {
@@ -201,6 +232,7 @@ export default function MaintenancePage() {
 
           @media (max-width: 480px) {
             .container { padding: 1.5rem; }
+            .feature-note { padding: 12px 14px; }
           }
         `}</style>
       </head>
@@ -228,6 +260,14 @@ export default function MaintenancePage() {
             El sitio se encuentra temporalmente fuera de servicio<br />
             mientras realizamos mejoras. Estaremos de vuelta pronto.
           </p>
+
+          <div className="feature-note">
+            <span className="feature-icon">🛠️</span>
+            <p>
+              Estamos agregando la opción de <strong>defecto único</strong> por el
+              cual se rechaza una tarima.
+            </p>
+          </div>
 
           <div className="divider" />
 

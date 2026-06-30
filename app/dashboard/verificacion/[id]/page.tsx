@@ -273,7 +273,6 @@ const CLOSE_TARIMA_STATUS_OPTIONS = [
 ] as const;
 
 const CLOSE_TARIMA_DEVIATION_STATUS = "Desviación";
-const RETRABAJO_NOTICE_STORAGE_VERSION = "v1";
 
 const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
     const normalizedStatus = (status || "").trim().toLowerCase();
@@ -442,7 +441,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [registerStatusMessage, setRegisterStatusMessage] = useState<string | null>(null);
     const [lastDetalleId, setLastDetalleId] = useState<number | null>(null);
     const [isEvidenceModalOpen, setIsEvidenceModalOpen] = useState(false);
-    const [isRetrabajoNoticeOpen, setIsRetrabajoNoticeOpen] = useState(false);
     const [isRetrabajoModalOpen, setIsRetrabajoModalOpen] = useState(false);
     const [retrabajoHistorial, setRetrabajoHistorial] = useState<PasadaCaja[]>([]);
     const [retrabajoMensaje, setRetrabajoMensaje] = useState("");
@@ -480,22 +478,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [qtyUomScanError, setQtyUomScanError] = useState<string | null>(null);
     const [isQtyUomScannerOpen, setIsQtyUomScannerOpen] = useState(false);
     const selectedTarimaIdRef = useRef<number | null>(null);
-    const getRetrabajoNoticeStorageKey = () => {
-        const userKey = String(user?.id || user?.name || currentUserName || "").trim();
-        if (!userKey || userKey === "USUARIO DESCONOCIDO") return null;
-        return `verification-retrabajo-notice:${RETRABAJO_NOTICE_STORAGE_VERSION}:${userKey}`;
-    };
-    const handleCloseRetrabajoNotice = () => {
-        const storageKey = getRetrabajoNoticeStorageKey();
-        if (storageKey) {
-            try {
-                window.localStorage.setItem(storageKey, "1");
-            } catch {
-                // ignore localStorage errors
-            }
-        }
-        setIsRetrabajoNoticeOpen(false);
-    };
     const getRequiredCurrentUserName = () => {
         const resolvedUserName = (user?.name || currentUserName || "").trim();
         if (!resolvedUserName || resolvedUserName === "USUARIO DESCONOCIDO") {
@@ -735,19 +717,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setCurrentUserName(user.name);
         }
     }, [user]);
-
-    useEffect(() => {
-        const storageKey = getRetrabajoNoticeStorageKey();
-        if (!storageKey) return;
-
-        try {
-            if (window.localStorage.getItem(storageKey) === "1") return;
-        } catch {
-            // Si localStorage falla, mostrar el aviso en esta sesión.
-        }
-
-        setIsRetrabajoNoticeOpen(true);
-    }, [user?.id, user?.name, currentUserName]);
 
     useEffect(() => {
         setRegisterError(null);
@@ -4251,45 +4220,6 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 </Button>
                             </div>
                         </form>
-                    </div>
-                </div>
-            )}
-
-            {isRetrabajoNoticeOpen && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 space-y-5">
-                        <div className="flex items-start gap-3 border-b pb-4">
-                            <div className="rounded-full bg-amber-100 p-2 text-amber-700 shrink-0">
-                                <RefreshCcw className="w-5 h-5" />
-                            </div>
-                            <div className="space-y-1">
-                                <h3 className="text-lg font-bold text-card-foreground">Nuevo: retrabajo por caja individual</h3>
-                                <p className="text-sm text-muted-foreground">
-                                    Ya puedes retrabajar una caja individual varias veces para todos los tipos de producto.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-3 text-sm text-slate-700">
-                            <div className="rounded-lg border border-border bg-muted/30 p-3">
-                                <p className="font-semibold text-card-foreground">Productos con consecutivo</p>
-                                <p className="mt-1 text-muted-foreground">
-                                    Agrega la caja capturando el consecutivo. Si corresponde a retrabajo, el sistema te avisara antes de registrarla.
-                                </p>
-                            </div>
-                            <div className="rounded-lg border border-border bg-muted/30 p-3">
-                                <p className="font-semibold text-card-foreground">Productos con trazabilidad</p>
-                                <p className="mt-1 text-muted-foreground">
-                                    Busca la caja en la seccion de ya validadas, dale click para seleccionarla y agregala a la nueva tarima para retrabajarla.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end pt-1">
-                            <Button className="h-11 px-5" onClick={handleCloseRetrabajoNotice}>
-                                Entendido
-                            </Button>
-                        </div>
                     </div>
                 </div>
             )}
