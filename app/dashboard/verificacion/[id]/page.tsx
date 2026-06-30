@@ -274,6 +274,11 @@ const CLOSE_TARIMA_STATUS_OPTIONS = [
 
 const CLOSE_TARIMA_DEVIATION_STATUS = "Desviación";
 
+const CLOSE_TARIMA_REJECTED_STATUS = "Rechazada";
+
+const requiresCloseTarimaDefecto = (status: string) =>
+    status === CLOSE_TARIMA_DEVIATION_STATUS || status === CLOSE_TARIMA_REJECTED_STATUS;
+
 const getCloseTarimaStatusLabel = (status: string | null | undefined) => {
     const normalizedStatus = (status || "").trim().toLowerCase();
     if (!normalizedStatus) return "Sin estatus";
@@ -458,6 +463,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [closeTarimaEstatusCierre, setCloseTarimaEstatusCierre] = useState("");
     const [closeTarimaAgregarComentario, setCloseTarimaAgregarComentario] = useState(false);
     const [closeTarimaComentario, setCloseTarimaComentario] = useState("");
+    const [closeTarimaDefectoId, setCloseTarimaDefectoId] = useState<number | null>(null);
+    const [isCloseTarimaDefectoOpen, setIsCloseTarimaDefectoOpen] = useState(false);
     const [usuarioAutoriza, setUsuarioAutoriza] = useState("");
     const [reopeningTarimaId, setReopeningTarimaId] = useState<number | null>(null);
     const [reopenTarimaError, setReopenTarimaError] = useState<string | null>(null);
@@ -1158,6 +1165,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         acc[defecto.familia].push(defecto);
         return acc;
     }, {});
+    const closeTarimaRequiresDefecto = requiresCloseTarimaDefecto(closeTarimaEstatusCierre);
+    const closeTarimaDefectoSeleccionado = closeTarimaDefectoId
+        ? catalogoDefectos.find((defecto) => defecto.id === closeTarimaDefectoId) ?? null
+        : null;
     const selectedTarimaDetalle =
         selectedTarima && tarimaActivaDetalle?.tarimaId === selectedTarima.tarimaId
             ? tarimaActivaDetalle
@@ -2024,7 +2035,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         }
 
         if (closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS && !usuarioAutoriza.trim()) {
-            setCloseTarimaError("Capture el ejecutivo de Ventas que autoriza la desviación.");
+            setCloseTarimaError("Capture el usuario que autoriza el cierre.");
+            return;
+        }
+
+        if (requiresCloseTarimaDefecto(closeTarimaEstatusCierre) && !closeTarimaDefectoSeleccionado) {
+            setCloseTarimaError("Seleccione el defecto por el que se rechaza o desvia la tarima.");
             return;
         }
 
@@ -2038,14 +2054,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    verificacionId: verifiedIdNumber,
                     tarimaId: selectedTarima.tarimaId,
+                    verificacionId: verifiedIdNumber,
                     estatusCierre: closeTarimaEstatusCierre,
-                    motivo: closeTarimaAgregarComentario ? closeTarimaComentario.trim() : "",
+                    defectoId: closeTarimaDefectoSeleccionado?.id ?? null,
                     usuario,
                     usuarioAutoriza: closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS
                         ? usuarioAutoriza.trim()
                         : null,
+                    comentariosGenerales: closeTarimaAgregarComentario ? closeTarimaComentario.trim() : "",
                 }),
             });
 
@@ -2071,6 +2088,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             setCloseTarimaEstatusCierre("");
             setCloseTarimaAgregarComentario(false);
             setCloseTarimaComentario("");
+            setCloseTarimaDefectoId(null);
+            setIsCloseTarimaDefectoOpen(false);
             setUsuarioAutoriza("");
             setTimeout(() => setIsCloseTarimaModalOpen(false), 600);
             fetchTarimasActivas();
@@ -3333,6 +3352,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         setCloseTarimaEstatusCierre("");
                                         setCloseTarimaAgregarComentario(false);
                                         setCloseTarimaComentario("");
+                                        setCloseTarimaDefectoId(null);
+                                        setIsCloseTarimaDefectoOpen(false);
                                         setUsuarioAutoriza("");
                                         setIsDeviationNoticeOpen(true);
                                         setIsCloseTarimaModalOpen(true);
@@ -3893,7 +3914,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
             {isCloseTarimaModalOpen && selectedTarima && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center border-b pb-3">
                             <h3 className="text-xl font-bold flex items-center gap-2">
                                 <Truck className="w-5 h-5 text-primary" /> Terminar tarima #{selectedTarima.numeroTarima}
@@ -3903,6 +3924,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 size="icon"
                                 onClick={() => {
                                     setUsuarioAutoriza("");
+                                    setCloseTarimaDefectoId(null);
+                                    setIsCloseTarimaDefectoOpen(false);
                                     setIsDeviationNoticeOpen(false);
                                     setIsCloseTarimaModalOpen(false);
                                 }}
@@ -3925,6 +3948,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     value={closeTarimaEstatusCierre}
                                     onValueChange={(value) => {
                                         setCloseTarimaEstatusCierre(value);
+                                        if (!requiresCloseTarimaDefecto(value)) {
+                                            setCloseTarimaDefectoId(null);
+                                            setIsCloseTarimaDefectoOpen(false);
+                                        }
                                         if (value !== CLOSE_TARIMA_DEVIATION_STATUS) {
                                             setUsuarioAutoriza("");
                                         }
@@ -3947,7 +3974,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                             {closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS && (
                                 <div className="space-y-2">
                                     <Label htmlFor="usuarioAutorizaTarima" className="text-card-foreground">
-                                        ¿Qué ejecutivo de Ventas autoriza? <span className="text-destructive">*</span>
+                                        Usuario que autoriza <span className="text-destructive">*</span>
                                     </Label>
                                     <Input
                                         id="usuarioAutorizaTarima"
@@ -3959,6 +3986,74 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         disabled={isClosingTarima}
                                         maxLength={100}
                                     />
+                                </div>
+                            )}
+
+                            {closeTarimaRequiresDefecto && (
+                                <div className="space-y-2">
+                                    <Label className="text-card-foreground">
+                                        Defecto por el que se rechaza la tarima <span className="text-destructive">*</span>
+                                    </Label>
+                                    {isCatalogoDefectosLoading && (
+                                        <p className="text-sm text-muted-foreground">Cargando catalogo de defectos...</p>
+                                    )}
+                                    {catalogoDefectosError && (
+                                        <p className="text-sm text-destructive">{catalogoDefectosError}</p>
+                                    )}
+                                    {!isCatalogoDefectosLoading && !catalogoDefectosError && (
+                                        <Popover
+                                            open={isCloseTarimaDefectoOpen}
+                                            onOpenChange={setIsCloseTarimaDefectoOpen}
+                                        >
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    aria-expanded={isCloseTarimaDefectoOpen}
+                                                    className="h-12 w-full justify-between font-normal"
+                                                    disabled={isClosingTarima || catalogoDefectos.length === 0}
+                                                >
+                                                    <span className="truncate">
+                                                        {closeTarimaDefectoSeleccionado
+                                                            ? `${closeTarimaDefectoSeleccionado.detalle} - ${closeTarimaDefectoSeleccionado.familia}`
+                                                            : "Buscar y seleccionar defecto"}
+                                                    </span>
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                                <Command className="**:data-[slot=command-input-wrapper]:h-11 [&_[cmdk-input]]:h-11 [&_[cmdk-item]]:py-3">
+                                                    <CommandInput placeholder="Buscar por familia o defecto..." />
+                                                    <CommandList className="max-h-72">
+                                                        <CommandEmpty>No se encontraron defectos.</CommandEmpty>
+                                                        {Object.entries(defectosPorFamilia).map(([familia, defectos]) => (
+                                                            <CommandGroup key={`close-${familia}`} heading={familia}>
+                                                                {defectos.map((defecto) => (
+                                                                    <CommandItem
+                                                                        key={`close-defecto-${defecto.id}`}
+                                                                        value={`${defecto.detalle} ${defecto.familia}`}
+                                                                        onSelect={() => {
+                                                                            setCloseTarimaDefectoId(defecto.id);
+                                                                            setIsCloseTarimaDefectoOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <Check
+                                                                            className={`mr-2 h-4 w-4 ${
+                                                                                closeTarimaDefectoId === defecto.id ? "opacity-100" : "opacity-0"
+                                                                            }`}
+                                                                        />
+                                                                        <span className="flex-1">{defecto.detalle}</span>
+                                                                        <span className="text-xs text-muted-foreground">{defecto.familia}</span>
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        ))}
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
+                                    )}
                                 </div>
                             )}
 
@@ -4012,6 +4107,10 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         (
                                             closeTarimaEstatusCierre === CLOSE_TARIMA_DEVIATION_STATUS &&
                                             !usuarioAutoriza.trim()
+                                        ) ||
+                                        (
+                                            closeTarimaRequiresDefecto &&
+                                            !closeTarimaDefectoSeleccionado
                                         )
                                     }
                                 >
@@ -4030,6 +4129,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                     className="flex-1 h-14 text-base"
                                     onClick={() => {
                                         setUsuarioAutoriza("");
+                                        setCloseTarimaDefectoId(null);
+                                        setIsCloseTarimaDefectoOpen(false);
                                         setIsDeviationNoticeOpen(false);
                                         setIsCloseTarimaModalOpen(false);
                                     }}
