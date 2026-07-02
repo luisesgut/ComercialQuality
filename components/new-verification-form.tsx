@@ -518,7 +518,8 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
         const existingVerificationId = extractVerificationIdFromError(detail);
         if (existingVerificationId) {
           try {
-            const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir/${existingVerificationId}`, {
+            const nombreUsuario = user?.name?.trim() || "Supervisor Calidad";
+            const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir/${existingVerificationId}?usuario=${encodeURIComponent(nombreUsuario)}`, {
               method: "PUT",
               headers: {
                 accept: "*/*",
