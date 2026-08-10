@@ -5,22 +5,37 @@ import { classifyApiError, formatApiError } from "@/lib/api-error";
 // URL Base de tu API
 const API_BASE_URL = "http://172.16.10.31/api";
 
-const fetchTipoEmpaqueFromDestinyDatos = async (codigoProducto: string) => {
+const fetchTipoEmpaqueFromUniversalData = async (codigoProducto: string) => {
     const normalizedCodigo = String(codigoProducto ?? "").trim();
-    if (!normalizedCodigo) return undefined;
-
-    try {
-        const urlDatos = `${API_BASE_URL}/DestinyDatos?codigoProducto=${encodeURIComponent(normalizedCodigo)}`;
-        const resDatos = await fetch(urlDatos);
-        if (!resDatos.ok) return undefined;
-
-        const datosJson = await resDatos.json();
-        const item = Array.isArray(datosJson) ? datosJson[0] : datosJson;
-        const tipoEmpaque = String(item?.tipoEmpaque ?? "").trim();
-        return tipoEmpaque || undefined;
-    } catch {
-        return undefined;
+    if (!normalizedCodigo) {
+        throw classifyApiError(new Error("Código de producto vacío"), 400, "grupo de artículo");
     }
+
+    const urlDatos = `${API_BASE_URL}/UniversalData/grupo-articulo/${encodeURIComponent(normalizedCodigo)}`;
+    let resDatos: Response;
+    try {
+        resDatos = await fetch(urlDatos);
+    } catch (err) {
+        throw classifyApiError(err, undefined, `grupo de artículo de ${normalizedCodigo}`);
+    }
+    if (!resDatos.ok) {
+        throw classifyApiError(
+            new Error(`HTTP ${resDatos.status}`),
+            resDatos.status,
+            `grupo de artículo de ${normalizedCodigo}`
+        );
+    }
+
+    const datosJson = await resDatos.json();
+    const tipoEmpaque = String(datosJson?.grupoArticulo ?? "").trim();
+    if (!tipoEmpaque) {
+        throw classifyApiError(
+            new Error("Respuesta sin grupoArticulo"),
+            404,
+            `grupo de artículo de ${normalizedCodigo}`
+        );
+    }
+    return tipoEmpaque;
 };
 
 interface HookResult {
@@ -221,7 +236,8 @@ export function useVerificationData(): HookResult {
             maquina: "",
         };
 
-        await fetchComplementaryData(etiquetaData, 'BIOFLEX');
+        const tipoEmpaque = await fetchTipoEmpaqueFromUniversalData(claveProducto);
+        await fetchComplementaryData(etiquetaData, 'BIOFLEX', tipoEmpaque);
 
     } catch (err: any) {
         console.error("Error Bioflex:", err);
@@ -273,8 +289,7 @@ export function useVerificationData(): HookResult {
             maquina: String(data.maquina ?? "").trim(),
         };
 
-        // Obtener tipoEmpaque de DestinyDatos
-        const tipoEmpaque = await fetchTipoEmpaqueFromDestinyDatos(claveProducto);
+        const tipoEmpaque = await fetchTipoEmpaqueFromUniversalData(claveProducto);
 
         await fetchComplementaryData(etiquetaData, 'DESTINY', tipoEmpaque, {
             piezasPorCaja: Number(data.piezas) || 0,
@@ -331,10 +346,7 @@ export function useVerificationData(): HookResult {
           uom: "",
           maquina: "",
         };
-        const tipoEmpaqueFromQuality = String(datosEtiqueta?.tipoEmpaque ?? "").trim();
-        const tipoEmpaque =
-            ((await fetchTipoEmpaqueFromDestinyDatos(etiquetaData.claveProducto || itemNo))
-            ?? tipoEmpaqueFromQuality) || undefined;
+        const tipoEmpaque = await fetchTipoEmpaqueFromUniversalData(etiquetaData.claveProducto || itemNo);
 
         await fetchComplementaryData(
             etiquetaData,

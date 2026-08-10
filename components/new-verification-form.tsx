@@ -16,21 +16,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Iconos
 import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCircle, ExternalLink } from "lucide-react"
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
-
-const TIPO_BOLSA_OPTIONS = [
-  "Sello lateral",
-  "Sello lateral con zipper",
-  "Wicket",
-  "Wicket con zipper",
-  "Pouch",
-]
 
 function StepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 }) {
   const steps = [
@@ -126,21 +117,10 @@ export function NewVerificationForm() {
     setClienteInput(clientePorModo);
   }, [mode, verificationStarted]);
 
-  // Auto-rellenar tipoBolsa con tipoEmpaque sugerido por la API.
+  // El tipo de bolsa siempre proviene de UniversalData/grupo-articulo.
   useEffect(() => {
-    if (consolidatedData?.tipoEmpaque && !tipoBolsaInput) {
-      setTipoBolsaInput(consolidatedData.tipoEmpaque);
-    }
+    setTipoBolsaInput(consolidatedData?.tipoEmpaque ?? "");
   }, [consolidatedData?.tipoEmpaque]);
-
-  const tipoBolsaOptions = Array.from(
-    new Set(
-      [
-        consolidatedData?.tipoEmpaque?.trim(),
-        ...TIPO_BOLSA_OPTIONS,
-      ].filter((option): option is string => Boolean(option)),
-    ),
-  );
 
   // Auto-rellenar piezasPorCaja según modo
   useEffect(() => {
@@ -627,23 +607,17 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
           )}
           <div className="space-y-2">
             <Label htmlFor="tipoBolsa">Tipo de Bolsa *</Label>
-            <Select value={tipoBolsaInput} onValueChange={setTipoBolsaInput} disabled={isSubmitting}>
-              <SelectTrigger className="w-full h-12">
-                <SelectValue placeholder="Seleccione el Tipo de Bolsa" />
-              </SelectTrigger>
-              <SelectContent>
-                {tipoBolsaOptions.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {consolidatedData?.tipoEmpaque && (
-              <p className="text-xs text-muted-foreground">
-                Valor sugerido por SAP: {consolidatedData.tipoEmpaque}
-              </p>
-            )}
+            <Input
+              id="tipoBolsa"
+              value={tipoBolsaInput}
+              placeholder="Tipo de bolsa no disponible"
+              disabled
+              readOnly
+              className="h-12"
+            />
+            <p className="text-xs text-muted-foreground">
+              Valor obtenido del grupo de artículo del producto.
+            </p>
           </div>
 
           <div className="space-y-2">
