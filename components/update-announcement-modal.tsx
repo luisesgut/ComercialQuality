@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Megaphone } from "lucide-react"
+import { CheckSquare, Megaphone } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-const ANNOUNCEMENT_STORAGE_KEY = "tarima-defecto-cierre-v1"
+const ANNOUNCEMENT_STORAGE_KEY = "caja-sin-etiqueta-v1"
 
 export function UpdateAnnouncementModal() {
   const [open, setOpen] = useState(false)
@@ -41,15 +41,19 @@ export function UpdateAnnouncementModal() {
           <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Megaphone className="h-5 w-5" />
           </div>
-          <DialogTitle>Nuevo requisito al cerrar tarimas</DialogTitle>
+          <DialogTitle>Nueva opción: caja sin etiqueta</DialogTitle>
           <DialogDescription className="pt-2 text-left leading-6">
-            Al cerrar una tarima como <strong>Rechazada</strong> o <strong>Desviación</strong>, ahora es necesario
-            seleccionar el defecto principal por el cual se descarta o desvía la tarima.
+            En el registro de cajas se agregó la opción <strong>Sin Etiqueta</strong>. Úsala únicamente cuando la caja
+            física no cuente con una etiqueta de identificación.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          Este defecto se toma del catálogo de defectos usado para cajas y se enviará junto con el cierre de la tarima.
+        <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+          <CheckSquare className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+          <p>
+            Al marcar el check, el sistema registra automáticamente el defecto <strong>Sin Etiqueta / Falta de
+            Etiqueta</strong>. Después podrás agregar fotografías como evidencia.
+          </p>
         </div>
 
         <DialogFooter>

@@ -218,6 +218,9 @@ interface DefectoCajaInputItem {
     comentario: string;
 }
 
+const normalizeCatalogText = (value: string) =>
+    value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
 interface DefectoResumenItem {
     familia: string;
     detalle: string;
@@ -430,6 +433,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
     const [tieneDefectosInput, setTieneDefectosInput] = useState(false);
+    const [isSinEtiqueta, setIsSinEtiqueta] = useState(false);
     const [catalogoDefectos, setCatalogoDefectos] = useState<DefectoCatalogItem[]>([]);
     const [isCatalogoDefectosLoading, setIsCatalogoDefectosLoading] = useState(false);
     const [catalogoDefectosError, setCatalogoDefectosError] = useState<string | null>(null);
@@ -1545,9 +1549,16 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
         setPiezasAuditadasInput("");
         setTieneDefectosInput(false);
+        setIsSinEtiqueta(false);
         setOpenDefectoIndex(null);
         setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
     };
+
+    const getDefectoSinEtiqueta = () =>
+        catalogoDefectos.find((defecto) => {
+            const descripcion = normalizeCatalogText(`${defecto.detalle} ${defecto.familia}`);
+            return descripcion.includes("sin etiqueta") || descripcion.includes("falta de etiqueta");
+        });
 
     const registerCajaDefectos = async ({
         detalleId,
@@ -1695,17 +1706,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         const isBioflex = currentVerificationType === "BIOFLEX";
         const isDestiny = currentVerificationType === "DESTINY";
 
-        if (isBioflex && !trazabilidadInput) {
+        if (!isSinEtiqueta && isBioflex && !trazabilidadInput) {
             setRegisterError("Ingrese la trazabilidad para registrar la caja.");
             return;
         }
 
-        if (isDestiny && !selectedDestinyCaja?.trazabilidad) {
+        if (!isSinEtiqueta && isDestiny && !selectedDestinyCaja?.trazabilidad) {
             setRegisterError("Seleccione una caja disponible de Destiny antes de registrar.");
             return;
         }
 
-        if (!isBioflex && !isDestiny && !consecutivoManualInput) {
+        if (!isSinEtiqueta && !isBioflex && !isDestiny && !consecutivoManualInput) {
             setRegisterError("Ingrese el consecutivo manual para registrar la caja.");
             return;
         }
@@ -1738,10 +1749,17 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
-        const defectosCapturados = defectosCajaInput.filter((item) =>
-            item.defectoId !== null || item.cantidad.trim() !== "" || item.comentario.trim() !== ""
-        );
-        if (tieneDefectosInput) {
+        const defectoSinEtiqueta = isSinEtiqueta ? getDefectoSinEtiqueta() : null;
+        if (isSinEtiqueta && !defectoSinEtiqueta) {
+            setRegisterError('No se encontró en el catálogo el defecto "Sin Etiqueta / Falta de Etiqueta".');
+            return;
+        }
+        const defectosCapturados: DefectoCajaInputItem[] = isSinEtiqueta && defectoSinEtiqueta
+            ? [{ defectoId: defectoSinEtiqueta.id, cantidad: "1", comentario: "Caja recibida sin etiqueta" }]
+            : defectosCajaInput.filter((item) =>
+                item.defectoId !== null || item.cantidad.trim() !== "" || item.comentario.trim() !== ""
+            );
+        if (tieneDefectosInput || isSinEtiqueta) {
             if (defectosCapturados.length === 0) {
                 setRegisterError("Agregue al menos un defecto para la caja.");
                 return;
@@ -1759,13 +1777,19 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
         }
 
-        const tipoEtiqueta = isDestiny ? "Trazable" : currentVerificationType;
-        const trazabilidadPayload = isBioflex
+        const tipoEtiqueta = isSinEtiqueta ? "SinEtiqueta" : isDestiny ? "Trazable" : currentVerificationType;
+        const trazabilidadPayload = isSinEtiqueta
+            ? null
+            : isBioflex
             ? trazabilidadInput
             : isDestiny
               ? selectedDestinyCaja?.trazabilidad ?? null
               : null;
-        const consecutivoManualPayload = isBioflex || isDestiny ? 0 : Number(consecutivoManualInput);
+        const consecutivoManualPayload = isSinEtiqueta
+            ? null
+            : isBioflex || isDestiny
+              ? 0
+              : Number(consecutivoManualInput);
         const usuario = getRequiredCurrentUserName();
 
         const payload: Record<string, any> = {
@@ -1776,6 +1800,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             qtyUomEtiqueta: qtyUomEtiquetaInput,
             tipoEtiqueta,
             piezasAuditadas: piezasAuditadasValue,
+            tieneDefectos: tieneDefectosInput || isSinEtiqueta,
+            comentariosDefecto: isSinEtiqueta ? "Caja sin etiqueta de identificación" : null,
             usuario,
         };
 
@@ -1820,11 +1846,11 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
 
             const numeroCaja = Number(data?.numeroCaja ?? selectedTarima.cajasLlevamos + 1);
-            if (tieneDefectosInput && data?.ultimoDetalleId) {
+            if ((tieneDefectosInput || isSinEtiqueta) && data?.ultimoDetalleId) {
                 await registerCajaDefectos({
                     detalleId: Number(data.ultimoDetalleId),
                     tarimaId: selectedTarima.tarimaId,
-                    numeroCaja,
+                    numeroCaja: isSinEtiqueta ? 0 : numeroCaja,
                     defectosCapturados,
                 });
                 fetchDefectosResumen();
@@ -1850,7 +1876,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                 fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""), { silent: true });
             }
 
-            if (tieneDefectosInput && data?.ultimoDetalleId) {
+            if ((tieneDefectosInput || isSinEtiqueta) && data?.ultimoDetalleId) {
                 setEvidenceTargetId(Number(data.ultimoDetalleId));
                 setIsEvidenceModalOpen(true);
             }
@@ -1885,19 +1911,22 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
             const data: RegistrarEscaneoResponse = await response.json();
             const numeroCaja = Number(data?.numeroCaja ?? selectedTarima.cajasLlevamos + 1);
-            const defectosCapturados = defectosCajaInput.filter((item) =>
-                item.defectoId !== null || item.cantidad.trim() !== "" || item.comentario.trim() !== ""
-            );
+            const defectoSinEtiqueta = isSinEtiqueta ? getDefectoSinEtiqueta() : null;
+            const defectosCapturados: DefectoCajaInputItem[] = isSinEtiqueta && defectoSinEtiqueta
+                ? [{ defectoId: defectoSinEtiqueta.id, cantidad: "1", comentario: "Caja recibida sin etiqueta" }]
+                : defectosCajaInput.filter((item) =>
+                    item.defectoId !== null || item.cantidad.trim() !== "" || item.comentario.trim() !== ""
+                );
 
             if (data?.ultimoDetalleId) {
                 const detalleId = Number(data.ultimoDetalleId);
                 setLastDetalleId(detalleId);
 
-                if (tieneDefectosInput) {
+                if (tieneDefectosInput || isSinEtiqueta) {
                     await registerCajaDefectos({
                         detalleId,
                         tarimaId: selectedTarima.tarimaId,
-                        numeroCaja,
+                        numeroCaja: isSinEtiqueta ? 0 : numeroCaja,
                         defectosCapturados,
                     });
                     fetchDefectosResumen();
@@ -2768,7 +2797,43 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleRegisterScan} className="space-y-5">
-                            {currentVerificationType === "BIOFLEX" ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (isRegisteringScan) return;
+                                    const nextValue = !isSinEtiqueta;
+                                    setIsSinEtiqueta(nextValue);
+                                    setTieneDefectosInput(nextValue);
+                                    setTrazabilidadInput("");
+                                    setConsecutivoManualInput("");
+                                    setSelectedDestinyCaja(null);
+                                    setOpenDefectoIndex(null);
+                                    setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
+                                }}
+                                aria-pressed={isSinEtiqueta}
+                                className={`w-full flex items-center justify-between rounded-xl border-2 p-4 text-left transition-colors ${
+                                    isSinEtiqueta
+                                        ? "border-amber-500 bg-amber-50 text-amber-950"
+                                        : "border-border bg-muted/30 hover:border-muted-foreground/30"
+                                }`}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center shrink-0 ${
+                                        isSinEtiqueta ? "border-amber-600 bg-amber-600" : "border-muted-foreground/40"
+                                    }`}>
+                                        {isSinEtiqueta && <Check className="w-4 h-4 text-white" />}
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold text-base">Sin Etiqueta</span>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            Registra una caja física sin identificación y asocia su defecto automáticamente.
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="text-sm font-medium">{isSinEtiqueta ? "Sí" : "No"}</span>
+                            </button>
+
+                            {!isSinEtiqueta && (currentVerificationType === "BIOFLEX" ? (
                                 <div className="space-y-2">
                                     <Label htmlFor="trazabilidad" className="text-base font-medium">Trazabilidad</Label>
                                     <div className="flex gap-2">
@@ -3069,7 +3134,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         min="1"
                                     />
                                 </div>
-                            )}
+                            ))}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-2">
@@ -3155,7 +3220,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (isRegisteringScan) return;
+                                        if (isRegisteringScan || isSinEtiqueta) return;
                                         const nextValue = !tieneDefectosInput;
                                         setTieneDefectosInput(nextValue);
                                         if (!nextValue) {
@@ -3163,6 +3228,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                             setDefectosCajaInput([{ defectoId: null, cantidad: "", comentario: "" }]);
                                         }
                                     }}
+                                    disabled={isSinEtiqueta}
                                     className={`w-full flex items-center justify-between rounded-xl border-2 p-4 text-left transition-colors ${
                                         tieneDefectosInput
                                             ? "border-destructive bg-destructive/10"
@@ -3183,7 +3249,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         {tieneDefectosInput ? "Sí" : "No"}
                                     </span>
                                 </button>
-                                {tieneDefectosInput && (
+                                {isSinEtiqueta && (
+                                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                        Se asociará automáticamente 1 defecto de catálogo “Sin Etiqueta / Falta de Etiqueta” con el comentario “Caja recibida sin etiqueta”.
+                                    </div>
+                                )}
+                                {tieneDefectosInput && !isSinEtiqueta && (
                                     <div className="mt-3 space-y-3">
                                         <div className="flex items-center justify-between">
                                             <Label className="text-base font-medium">Defectos de la caja</Label>
