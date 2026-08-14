@@ -23,6 +23,18 @@ import { ArrowLeft, CheckCircle, AlertCircle, Search, QrCode, Grid, Hash, HelpCi
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
 
+interface VerificationRound {
+  verificacionId: number;
+  numeroReproceso: number;
+  terminada: boolean;
+  fechaInicio: string;
+  fechaFin: string | null;
+  cajasRevisadas: number;
+  tarimasValidadas: number;
+  etiquetaRonda: string;
+  estatusTexto: string;
+}
+
 function StepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 }) {
   const steps = [
     { number: 1, label: "Búsqueda" },
@@ -61,6 +73,7 @@ function StepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 }) {
 export function NewVerificationForm() {
   const router = useRouter()
   const { user } = useAuth()
+  const isAdminUser = user?.role?.trim().toLowerCase() === "administrador"
 
   // --- USO DEL HOOK UNIFICADO ---
   const {
@@ -98,9 +111,10 @@ export function NewVerificationForm() {
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null)
   const [createdVerificationId, setCreatedVerificationId] = useState<number | null>(null)
   const [reopenModalOpen, setReopenModalOpen] = useState(false)
-  const [reopenVerificationId, setReopenVerificationId] = useState<number | null>(null)
+  const [verificationRounds, setVerificationRounds] = useState<VerificationRound[]>([])
   const [reopenModalMessage, setReopenModalMessage] = useState<string>("")
-  const [existingVerificationAction, setExistingVerificationAction] = useState<"reopen" | "reprocess" | null>(null)
+  const [existingVerificationAction, setExistingVerificationAction] = useState<string | null>(null)
+  const [reprocessWarningOpen, setReprocessWarningOpen] = useState(false)
   const REDIRECT_DELAY_MS = 600
   const [helpImage, setHelpImage] = useState<null | { title: string; src: string; alt: string }>(null)
 
@@ -138,11 +152,6 @@ export function NewVerificationForm() {
     setPiezasPorCajaInput(valor);
   }, [consolidatedData, mode]);
 
-  const extractVerificationIdFromError = (message: string) => {
-    const match = message.match(/ID:\s*(\d+)/i);
-    return match ? Number(match[1]) : null;
-  };
-
   const extractVerificationIdFromResponse = (data: any) => {
     const idValue = data?.id ?? data?.verificacionId ?? data?.verificationId;
     return typeof idValue === "number" ? idValue : Number(idValue);
@@ -163,100 +172,223 @@ export function NewVerificationForm() {
     }
   };
 
-  const handleExistingVerificationAction = async (action: "reopen" | "reprocess") => {
-    if (!reopenVerificationId) return;
-
-    setExistingVerificationAction(action);
+  const handleReopenRound = async (round: VerificationRound) => {
+    const actionKey = `reopen-${round.verificacionId}`;
+    setExistingVerificationAction(actionKey);
     setReopenModalMessage("");
 
     try {
       const nombreUsuario = user?.name?.trim() || "Supervisor Calidad";
-      const isReprocess = action === "reprocess";
       const response = await fetch(
-        `${API_BASE_URL}/Verificacion/${isReprocess ? "reprocesar" : "reabrir"}/${reopenVerificationId}?usuario=${encodeURIComponent(nombreUsuario)}`,
+        `${API_BASE_URL}/Verificacion/reabrir/${round.verificacionId}?usuario=${encodeURIComponent(nombreUsuario)}`,
         {
-          method: isReprocess ? "POST" : "PUT",
+          method: "PUT",
           headers: { accept: "*/*" },
         }
       );
 
       if (!response.ok) {
-        const fallback = isReprocess
-          ? `Error (${response.status}) al reprocesar la verificación ${reopenVerificationId}.`
-          : `Error (${response.status}) al reabrir la verificación ${reopenVerificationId}.`;
+        const fallback = `Error (${response.status}) al reabrir la verificación ${round.verificacionId}.`;
         setReopenModalMessage(await parseResponseMessage(response, fallback));
         return;
       }
-
-      let targetVerificationId = reopenVerificationId;
-      if (isReprocess) {
-        const result = await response.json();
-        if (result?.success === false) {
-          setReopenModalMessage(result?.error || result?.mensaje || "No se pudo crear la verificación de reproceso.");
-          return;
-        }
-        targetVerificationId = extractVerificationIdFromResponse(result);
-        if (!targetVerificationId || Number.isNaN(targetVerificationId)) {
-          setReopenModalMessage("El reproceso fue creado, pero la respuesta no incluyó el ID de la nueva verificación.");
-          return;
-        }
+      const result = await response.json().catch(() => null);
+      if (result?.success === false) {
+        setReopenModalMessage(result?.error || result?.mensaje || "No se pudo reabrir la verificación.");
+        return;
       }
 
       setReopenModalOpen(false);
-      setCreatedVerificationId(targetVerificationId);
-      setSubmitSuccess(
-        isReprocess
-          ? `Verificación ${targetVerificationId} creada para reproceso. Redirigiendo...`
-          : `Verificación ${targetVerificationId} reabierta. Redirigiendo...`
-      );
-      setTimeout(() => router.push(`/dashboard/verificacion/${targetVerificationId}`), REDIRECT_DELAY_MS);
+      setCreatedVerificationId(round.verificacionId);
+      setSubmitSuccess(`Verificación ${round.verificacionId} reabierta. Redirigiendo...`);
+      setTimeout(() => router.push(`/dashboard/verificacion/${round.verificacionId}`), REDIRECT_DELAY_MS);
     } catch (err: any) {
-      setReopenModalMessage(err.message || "Error de conexión al procesar la verificación existente.");
+      setReopenModalMessage(err.message || "Error de conexión al reabrir la verificación.");
     } finally {
       setExistingVerificationAction(null);
     }
   };
 
+  const handleReprocessLatestRound = async () => {
+    if (!isAdminUser) {
+      setReprocessWarningOpen(false);
+      setReopenModalMessage("Solo los administradores pueden reprocesar material rehecho.");
+      return;
+    }
+
+    const latestRound = verificationRounds.reduce<VerificationRound | null>(
+      (latest, round) => !latest || round.numeroReproceso > latest.numeroReproceso ? round : latest,
+      null
+    );
+    if (!latestRound || verificationRounds.some((round) => !round.terminada)) return;
+
+    const actionKey = `reprocess-${latestRound.verificacionId}`;
+    setExistingVerificationAction(actionKey);
+    setReopenModalMessage("");
+
+    try {
+      const nombreUsuario = user?.name?.trim() || "Supervisor Calidad";
+      const response = await fetch(
+        `${API_BASE_URL}/Verificacion/reprocesar/${latestRound.verificacionId}?usuario=${encodeURIComponent(nombreUsuario)}`,
+        { method: "POST", headers: { accept: "*/*" } }
+      );
+      if (!response.ok) {
+        setReopenModalMessage(await parseResponseMessage(response, `Error (${response.status}) al reprocesar la orden.`));
+        return;
+      }
+
+      const result = await response.json();
+      if (result?.success === false) {
+        setReopenModalMessage(result?.error || result?.mensaje || "No se pudo crear la verificación de reproceso.");
+        return;
+      }
+      const newVerificationId = extractVerificationIdFromResponse(result);
+      if (!newVerificationId || Number.isNaN(newVerificationId)) {
+        setReopenModalMessage("El reproceso fue creado, pero la respuesta no incluyó el ID de la nueva verificación.");
+        return;
+      }
+
+      setReopenModalOpen(false);
+      setCreatedVerificationId(newVerificationId);
+      setSubmitSuccess(`Verificación ${newVerificationId} creada para reproceso. Redirigiendo...`);
+      setTimeout(() => router.push(`/dashboard/verificacion/${newVerificationId}`), REDIRECT_DELAY_MS);
+    } catch (err: any) {
+      setReopenModalMessage(err.message || "Error de conexión al reprocesar la orden.");
+    } finally {
+      setExistingVerificationAction(null);
+    }
+  };
+
+  const formatRoundDate = (value: string | null) => {
+    if (!value) return "Sin fecha";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const hasActiveRound = verificationRounds.some((round) => !round.terminada);
+  const latestRound = verificationRounds.reduce<VerificationRound | null>(
+    (latest, round) => !latest || round.numeroReproceso > latest.numeroReproceso ? round : latest,
+    null
+  );
+
   const reopenModal = reopenModalOpen ? (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center border-b pb-3">
           <h3 className="text-xl font-bold flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-destructive" /> Verificacion existente
+            <AlertCircle className="w-5 h-5 text-destructive" /> Rondas de verificación existentes
           </h3>
-          <Button variant="ghost" size="icon" onClick={() => setReopenModalOpen(false)}>
+          <Button variant="ghost" size="icon" onClick={() => setReopenModalOpen(false)} disabled={existingVerificationAction !== null}>
             &times;
           </Button>
         </div>
         <p className="text-muted-foreground text-sm">
-          Ya existe una verificación para este lote. Elija si desea continuar la revisión existente o iniciar una nueva porque el material fue rehecho.
+          Este lote ya fue revisado. Normalmente debe reabrir la ronda para continuar trabajando; consulte el historial solo si necesita revisar la información antes de decidir.
         </p>
         {reopenModalMessage && (
           <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
             {reopenModalMessage}
           </div>
         )}
-        <div className="flex flex-col gap-3 pt-2">
-          <Button
-            className="w-full"
-            onClick={() => void handleExistingVerificationAction("reopen")}
-            disabled={existingVerificationAction !== null}
-          >
-            {existingVerificationAction === "reopen" ? "Reabriendo..." : "Continuar / reabrir revisión existente"}
-          </Button>
-          <Button
-            variant="secondary"
-            className="w-full"
-            onClick={() => void handleExistingVerificationAction("reprocess")}
-            disabled={existingVerificationAction !== null}
-          >
-            {existingVerificationAction === "reprocess" ? "Creando reproceso..." : "Reprocesar (material rehecho, revisión nueva)"}
-          </Button>
+        <div className="space-y-3">
+          {verificationRounds
+            .slice()
+            .sort((a, b) => a.numeroReproceso - b.numeroReproceso)
+            .map((round) => {
+              const reopenActionKey = `reopen-${round.verificacionId}`;
+              return (
+                <div key={round.verificacionId} className="rounded-lg border p-4 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold">{round.etiquetaRonda}</p>
+                      <p className="text-xs text-muted-foreground">ID {round.verificacionId} · {round.estatusTexto}</p>
+                    </div>
+                    <span className="text-sm font-medium">{round.cajasRevisadas} cajas · {round.tarimasValidadas} tarimas</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Inicio: {formatRoundDate(round.fechaInicio)} · Fin: {formatRoundDate(round.fechaFin)}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {round.terminada ? (
+                      <>
+                        <Button className="flex-1 min-w-52" onClick={() => void handleReopenRound(round)} disabled={existingVerificationAction !== null}>
+                          {existingVerificationAction === reopenActionKey ? "Reabriendo..." : "Reabrir y continuar (opción habitual)"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={() => window.open(`/dashboard/verificacion/${round.verificacionId}`, "_blank", "noopener,noreferrer")}
+                          disabled={existingVerificationAction !== null}
+                        >
+                          Consultar en nueva pestaña
+                        </Button>
+                      </>
+                    ) : (
+                      <Button onClick={() => router.push(`/dashboard/verificacion/${round.verificacionId}`)} disabled={existingVerificationAction !== null}>
+                        Continuar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+        <div className="flex flex-col gap-3 pt-4 border-t">
+          <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Caso excepcional</p>
+            <p className="text-xs text-amber-900">
+              Use reprocesar solamente cuando producción haya rehecho todo el producto y todas las tarimas.
+            </p>
+            <Button
+              variant="outline"
+              className="w-full border-amber-500 text-amber-800 hover:bg-amber-100 hover:text-amber-900 font-medium"
+              onClick={() => setReprocessWarningOpen(true)}
+              disabled={!isAdminUser || hasActiveRound || existingVerificationAction !== null || !latestRound}
+            >
+              {existingVerificationAction?.startsWith("reprocess-") ? "Creando reproceso..." : "Reprocesar material rehecho"}
+            </Button>
+          </div>
+          {!isAdminUser && <p className="text-xs text-muted-foreground text-center">Solo los administradores pueden reprocesar material rehecho.</p>}
+          {hasActiveRound && <p className="text-xs text-muted-foreground text-center">Finalice o continúe la ronda en proceso antes de crear un reproceso.</p>}
           <Button variant="outline" className="w-full" onClick={() => setReopenModalOpen(false)} disabled={existingVerificationAction !== null}>
             Cancelar
           </Button>
         </div>
       </div>
+      {reprocessWarningOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-5 border-2 border-amber-500">
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-amber-100 text-amber-700 p-2 shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Advertencia de reproceso</h3>
+                <p className="text-sm text-slate-600 mt-2">
+                  Reprocesar una verificación significa que todo el producto, es decir, todas las tarimas, fueron rehechas en producción y se iniciará una revisión nueva desde cero.
+                </p>
+                <p className="text-sm font-semibold text-amber-800 mt-3">
+                  No use esta opción para eliminar, corregir o agregar una tarima desde cero. Para esos casos debe usar Reabrir.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col-reverse sm:flex-row gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setReprocessWarningOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                className="flex-1 bg-amber-500 text-slate-950 hover:bg-amber-600 font-semibold"
+                onClick={() => {
+                  setReprocessWarningOpen(false);
+                  void handleReprocessLatestRound();
+                }}
+              >
+                Sí, reprocesar todo el producto
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   ) : null;
 
@@ -541,6 +673,28 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
     };
 
     try {
+      const roundsResponse = await fetch(
+        `${API_BASE_URL}/Verificacion/rondas/${encodeURIComponent(finalPostBody.lote)}`,
+        { headers: { accept: "*/*" } }
+      );
+      if (!roundsResponse.ok) {
+        throw new Error(await parseResponseMessage(
+          roundsResponse,
+          `Error (${roundsResponse.status}) al consultar las rondas de la orden.`
+        ));
+      }
+
+      const roundsPayload = await roundsResponse.json();
+      if (!Array.isArray(roundsPayload)) {
+        throw new Error("La consulta de rondas devolvió una respuesta inválida.");
+      }
+      if (roundsPayload.length > 0) {
+        setVerificationRounds(roundsPayload);
+        setReopenModalMessage("");
+        setReopenModalOpen(true);
+        return;
+      }
+
       const urlPost = `${API_BASE_URL}/Verificacion/iniciar`;
       const response = await fetch(urlPost, {
         method: 'POST',
@@ -562,28 +716,7 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
         setTimeout(() => router.push(`/dashboard/verificacion/${newVerificationId}`), REDIRECT_DELAY_MS);
 
       } else {
-        let detail = "Error al iniciar la verificación en el servidor.";
-        try {
-          const errorText = await response.text();
-          if (errorText) {
-            try {
-              const errorData = JSON.parse(errorText);
-              detail = errorData.detail || errorData.message || errorData.error || detail;
-            } catch {
-              detail = errorText;
-            }
-          }
-        } catch {
-          // ignore parse error
-        }
-        const existingVerificationId = extractVerificationIdFromError(detail);
-        if (existingVerificationId) {
-          setReopenVerificationId(existingVerificationId);
-          setReopenModalMessage("");
-          setReopenModalOpen(true);
-          return;
-        }
-        throw new Error(detail);
+        throw new Error(await parseResponseMessage(response, "Error al iniciar la verificación en el servidor."));
       }
     } catch (err: any) {
       setSubmitError(err.message || "Error de conexión desconocido.");
