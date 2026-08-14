@@ -1560,6 +1560,16 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return descripcion.includes("sin etiqueta") || descripcion.includes("falta de etiqueta");
         });
 
+    const buildComentariosDefectoPayload = (defectosCapturados: DefectoCajaInputItem[]) => {
+        if (isSinEtiqueta) return "Caja sin etiqueta de identificación";
+
+        const comentarios = defectosCapturados
+            .map((item) => item.comentario.trim())
+            .filter(Boolean);
+
+        return comentarios.length > 0 ? comentarios.join(" | ") : null;
+    };
+
     const registerCajaDefectos = async ({
         detalleId,
         tarimaId,
@@ -1801,7 +1811,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             tipoEtiqueta,
             piezasAuditadas: piezasAuditadasValue,
             tieneDefectos: tieneDefectosInput || isSinEtiqueta,
-            comentariosDefecto: isSinEtiqueta ? "Caja sin etiqueta de identificación" : null,
+            comentariosDefecto: buildComentariosDefectoPayload(defectosCapturados),
             usuario,
         };
 
