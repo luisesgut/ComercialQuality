@@ -100,6 +100,7 @@ export function NewVerificationForm() {
   const [reopenModalOpen, setReopenModalOpen] = useState(false)
   const [reopenVerificationId, setReopenVerificationId] = useState<number | null>(null)
   const [reopenModalMessage, setReopenModalMessage] = useState<string>("")
+  const [existingVerificationAction, setExistingVerificationAction] = useState<"reopen" | "reprocess" | null>(null)
   const REDIRECT_DELAY_MS = 600
   const [helpImage, setHelpImage] = useState<null | { title: string; src: string; alt: string }>(null)
 
@@ -147,6 +148,75 @@ export function NewVerificationForm() {
     return typeof idValue === "number" ? idValue : Number(idValue);
   };
 
+  const parseResponseMessage = async (response: Response, fallback: string) => {
+    try {
+      const responseText = await response.text();
+      if (!responseText) return fallback;
+      try {
+        const responseData = JSON.parse(responseText);
+        return responseData.detail || responseData.message || responseData.mensaje || responseData.error || fallback;
+      } catch {
+        return responseText;
+      }
+    } catch {
+      return fallback;
+    }
+  };
+
+  const handleExistingVerificationAction = async (action: "reopen" | "reprocess") => {
+    if (!reopenVerificationId) return;
+
+    setExistingVerificationAction(action);
+    setReopenModalMessage("");
+
+    try {
+      const nombreUsuario = user?.name?.trim() || "Supervisor Calidad";
+      const isReprocess = action === "reprocess";
+      const response = await fetch(
+        `${API_BASE_URL}/Verificacion/${isReprocess ? "reprocesar" : "reabrir"}/${reopenVerificationId}?usuario=${encodeURIComponent(nombreUsuario)}`,
+        {
+          method: isReprocess ? "POST" : "PUT",
+          headers: { accept: "*/*" },
+        }
+      );
+
+      if (!response.ok) {
+        const fallback = isReprocess
+          ? `Error (${response.status}) al reprocesar la verificación ${reopenVerificationId}.`
+          : `Error (${response.status}) al reabrir la verificación ${reopenVerificationId}.`;
+        setReopenModalMessage(await parseResponseMessage(response, fallback));
+        return;
+      }
+
+      let targetVerificationId = reopenVerificationId;
+      if (isReprocess) {
+        const result = await response.json();
+        if (result?.success === false) {
+          setReopenModalMessage(result?.error || result?.mensaje || "No se pudo crear la verificación de reproceso.");
+          return;
+        }
+        targetVerificationId = extractVerificationIdFromResponse(result);
+        if (!targetVerificationId || Number.isNaN(targetVerificationId)) {
+          setReopenModalMessage("El reproceso fue creado, pero la respuesta no incluyó el ID de la nueva verificación.");
+          return;
+        }
+      }
+
+      setReopenModalOpen(false);
+      setCreatedVerificationId(targetVerificationId);
+      setSubmitSuccess(
+        isReprocess
+          ? `Verificación ${targetVerificationId} creada para reproceso. Redirigiendo...`
+          : `Verificación ${targetVerificationId} reabierta. Redirigiendo...`
+      );
+      setTimeout(() => router.push(`/dashboard/verificacion/${targetVerificationId}`), REDIRECT_DELAY_MS);
+    } catch (err: any) {
+      setReopenModalMessage(err.message || "Error de conexión al procesar la verificación existente.");
+    } finally {
+      setExistingVerificationAction(null);
+    }
+  };
+
   const reopenModal = reopenModalOpen ? (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-6">
@@ -158,21 +228,32 @@ export function NewVerificationForm() {
             &times;
           </Button>
         </div>
-        <p className="text-muted-foreground text-sm">{reopenModalMessage}</p>
-        <div className="flex gap-3 pt-2">
+        <p className="text-muted-foreground text-sm">
+          Ya existe una verificación para este lote. Elija si desea continuar la revisión existente o iniciar una nueva porque el material fue rehecho.
+        </p>
+        {reopenModalMessage && (
+          <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+            {reopenModalMessage}
+          </div>
+        )}
+        <div className="flex flex-col gap-3 pt-2">
           <Button
-            className="flex-1"
-            onClick={() => {
-              if (reopenVerificationId) {
-                router.push(`/dashboard/verificacion/${reopenVerificationId}`)
-              }
-              setReopenModalOpen(false)
-            }}
+            className="w-full"
+            onClick={() => void handleExistingVerificationAction("reopen")}
+            disabled={existingVerificationAction !== null}
           >
-            Llevarme a la verificacion
+            {existingVerificationAction === "reopen" ? "Reabriendo..." : "Continuar / reabrir revisión existente"}
           </Button>
-          <Button variant="outline" className="flex-1" onClick={() => setReopenModalOpen(false)}>
-            Cerrar
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => void handleExistingVerificationAction("reprocess")}
+            disabled={existingVerificationAction !== null}
+          >
+            {existingVerificationAction === "reprocess" ? "Creando reproceso..." : "Reprocesar (material rehecho, revisión nueva)"}
+          </Button>
+          <Button variant="outline" className="w-full" onClick={() => setReopenModalOpen(false)} disabled={existingVerificationAction !== null}>
+            Cancelar
           </Button>
         </div>
       </div>
@@ -497,42 +578,10 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
         }
         const existingVerificationId = extractVerificationIdFromError(detail);
         if (existingVerificationId) {
-          try {
-            const nombreUsuario = user?.name?.trim() || "Supervisor Calidad";
-            const reopenResponse = await fetch(`${API_BASE_URL}/Verificacion/reabrir/${existingVerificationId}?usuario=${encodeURIComponent(nombreUsuario)}`, {
-              method: "PUT",
-              headers: {
-                accept: "*/*",
-              },
-            });
-            if (!reopenResponse.ok) {
-              let reopenDetail = `Error (${reopenResponse.status}) al reabrir la verificación ${existingVerificationId}.`;
-              try {
-                const reopenText = await reopenResponse.text();
-                if (reopenText) {
-                  try {
-                    const reopenData = JSON.parse(reopenText);
-                    reopenDetail = reopenData.detail || reopenData.message || reopenData.error || reopenDetail;
-                  } catch {
-                    reopenDetail = reopenText;
-                  }
-                }
-              } catch {
-                // ignore parse error
-              }
-              setReopenModalMessage(reopenDetail);
-              setReopenVerificationId(existingVerificationId);
-              setReopenModalOpen(true);
-              setSubmitError(detail);
-              return;
-            }
-            setSubmitSuccess(`Verificación ${existingVerificationId} reabierta. Redirigiendo...`);
-            setCreatedVerificationId(existingVerificationId);
-            setTimeout(() => router.push(`/dashboard/verificacion/${existingVerificationId}`), REDIRECT_DELAY_MS);
-            return;
-          } catch (reopenErr: any) {
-            throw new Error(reopenErr.message || "No se pudo reabrir la verificación existente.");
-          }
+          setReopenVerificationId(existingVerificationId);
+          setReopenModalMessage("");
+          setReopenModalOpen(true);
+          return;
         }
         throw new Error(detail);
       }
