@@ -220,7 +220,7 @@ export function NewVerificationForm() {
       (latest, round) => !latest || round.numeroReproceso > latest.numeroReproceso ? round : latest,
       null
     );
-    if (!latestRound || verificationRounds.some((round) => !round.terminada)) return;
+    if (!latestRound) return;
 
     const actionKey = `reprocess-${latestRound.verificacionId}`;
     setExistingVerificationAction(actionKey);
@@ -265,7 +265,6 @@ export function NewVerificationForm() {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   };
 
-  const hasActiveRound = verificationRounds.some((round) => !round.terminada);
   const latestRound = verificationRounds.reduce<VerificationRound | null>(
     (latest, round) => !latest || round.numeroReproceso > latest.numeroReproceso ? round : latest,
     null
@@ -343,13 +342,12 @@ export function NewVerificationForm() {
               variant="outline"
               className="w-full border-amber-500 text-amber-800 hover:bg-amber-100 hover:text-amber-900 font-medium"
               onClick={() => setReprocessWarningOpen(true)}
-              disabled={!isAdminUser || hasActiveRound || existingVerificationAction !== null || !latestRound}
+              disabled={!isAdminUser || existingVerificationAction !== null || !latestRound}
             >
               {existingVerificationAction?.startsWith("reprocess-") ? "Creando reproceso..." : "Reprocesar material rehecho"}
             </Button>
           </div>
           {!isAdminUser && <p className="text-xs text-muted-foreground text-center">Solo los administradores pueden reprocesar material rehecho.</p>}
-          {hasActiveRound && <p className="text-xs text-muted-foreground text-center">Finalice o continúe la ronda en proceso antes de crear un reproceso.</p>}
           <Button variant="outline" className="w-full" onClick={() => setReopenModalOpen(false)} disabled={existingVerificationAction !== null}>
             Cancelar
           </Button>

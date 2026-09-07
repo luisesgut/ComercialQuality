@@ -16,6 +16,10 @@ export interface Verification {
   updatedAt: string
   inspector: string
   cliente: string
+  /** Nombre del producto sin el lote concatenado (viene de `producto` en /activas) */
+  producto?: string
+  /** Tarimas ya verificadas del lote (viene de `avanceTarimas` en /activas) */
+  avanceTarimas?: number
   notas?: string
   notes?: string
   checkpoints: {
@@ -98,6 +102,8 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
                 updatedAt: new Date().toISOString(),
                 inspector: "",
                 cliente: apiVer.cliente,
+                producto: apiVer.producto,
+                avanceTarimas: apiVer.avanceTarimas,
                 notes: `Tarimas avanzadas: ${apiVer.avanceTarimas}`,
                 checkpoints: {
                     packaging: null,
