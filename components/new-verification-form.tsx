@@ -662,6 +662,7 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
     // --- 3. CONSTRUCCIÓN DEL BODY FINAL ---
     const finalPostBody = {
       lote: String(etiqueta.orden), // El lote es el campo "orden" (28596 para Destiny)
+      claveProducto: etiqueta.claveProducto || "",
       cliente: clienteInput,
       validadores: user?.name || "USUARIO DESCONOCIDO",
       printCard: etiqueta.printCard || "", // "E-4814-A_R-1"
@@ -671,10 +672,9 @@ const startScanner = async (target: "trazability" | "destinyShippingUnitId" | "q
     };
 
     try {
-      const roundsResponse = await fetch(
-        `${API_BASE_URL}/Verificacion/rondas/${encodeURIComponent(finalPostBody.lote)}`,
-        { headers: { accept: "*/*" } }
-      );
+      const roundsUrl = `${API_BASE_URL}/Verificacion/rondas/${encodeURIComponent(finalPostBody.lote)}` +
+        (finalPostBody.claveProducto ? `?claveProducto=${encodeURIComponent(finalPostBody.claveProducto)}` : "");
+      const roundsResponse = await fetch(roundsUrl, { headers: { accept: "*/*" } });
       if (!roundsResponse.ok) {
         throw new Error(await parseResponseMessage(
           roundsResponse,
