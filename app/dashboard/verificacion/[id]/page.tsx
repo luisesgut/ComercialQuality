@@ -23,6 +23,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, ArrowLeft, TrendingUp, Package, Truck, AlertCircle, Clock, Layers, CheckSquare, HelpCircle, Check, CheckCircle2, Camera, Trash2, ExternalLink, ChevronsUpDown, ScanLine, Search, ChevronDown, RefreshCcw } from 'lucide-react';
 import { QrScannerModal } from "@/components/QrScannerModal";
+import { QualityCajasSelector, QualityCajaDisponible } from "@/components/QualityCajasSelector";
 
 // URL Base de la API
 const API_BASE_URL = "http://172.16.10.31/api";
@@ -390,6 +391,16 @@ const getDestinyTurnoAbbreviation = (turno: string | null | undefined) => {
     return turno.trim().toUpperCase();
 };
 
+// Misma regla que getVerificationType(), usable en efectos (antes de los returns tempranos)
+const isQualityDashboard = (data: DashboardData | null) => {
+    if (!data) return false;
+    if (data.cliente === "QUALITY") return true;
+    if (data.cliente === "DESTINY" || data.cliente === "BIOFLEX") return false;
+    const productInfoUpper = (data.productoInfo ?? data.nombreProducto ?? "").toUpperCase();
+    if (productInfoUpper.includes("DESTINY") || productInfoUpper.includes("61953")) return false;
+    return productInfoUpper.includes("QUALITY");
+};
+
 export function VerificationDetail({ verificationId }: VerificationDetailProps) {
     const router = useRouter();
     const { user } = useAuth();
@@ -430,6 +441,8 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
     const [destinySearchByMachine, setDestinySearchByMachine] = useState<Record<number, string>>({});
     const [destinyStatusFilter, setDestinyStatusFilter] = useState<DestinyStatusFilter>("all");
     const [openMaquinaAccordion, setOpenMaquinaAccordion] = useState<string>("");
+    const [selectedQualityCaja, setSelectedQualityCaja] = useState<QualityCajaDisponible | null>(null);
+    const [qualityCajasRefreshKey, setQualityCajasRefreshKey] = useState(0);
     const [qtyUomEtiquetaInput, setQtyUomEtiquetaInput] = useState("");
     const [piezasAuditadasInput, setPiezasAuditadasInput] = useState("");
     const [tieneDefectosInput, setTieneDefectosInput] = useState(false);
@@ -827,6 +840,30 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
         setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
     }, [dashboardData?.cliente, dashboardData?.nombreProducto, dashboardData?.piezasPorCaja, dashboardData?.productoInfo, selectedDestinyCaja]);
+
+    // Quality: las piezas por caja salen de la caja de producción seleccionada.
+    // Va después del efecto anterior para que, si ambos corren, este gane.
+    useEffect(() => {
+        if (!isQualityDashboard(dashboardData)) return;
+        if (selectedQualityCaja) {
+            setQtyUomEtiquetaInput(String(selectedQualityCaja.piezas));
+            return;
+        }
+
+        const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
+        setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
+    }, [dashboardData, selectedQualityCaja]);
+
+    const handleQualityCajaSelect = useCallback(
+        (caja: QualityCajaDisponible | null, reason: "user" | "refresh") => {
+            setSelectedQualityCaja(caja);
+            if (reason === "user" && caja) {
+                setPiezasAuditadasInput(String(caja.piezas));
+                setRegisterError(null);
+            }
+        },
+        []
+    );
 
     useEffect(() => {
         const isDestiny =
@@ -1545,6 +1582,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
         setConsecutivoManualInput("");
         setSelectedDestinyCaja(null);
         setDestinySearchByMachine({});
+        setSelectedQualityCaja(null);
         const fixedQty = Number(dashboardData?.piezasPorCaja ?? 0);
         setQtyUomEtiquetaInput(fixedQty > 0 ? String(fixedQty) : "");
         setPiezasAuditadasInput("");
@@ -1715,6 +1753,7 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
 
         const isBioflex = currentVerificationType === "BIOFLEX";
         const isDestiny = currentVerificationType === "DESTINY";
+        const isQuality = currentVerificationType === "QUALITY";
 
         if (!isSinEtiqueta && isBioflex && !trazabilidadInput) {
             setRegisterError("Ingrese la trazabilidad para registrar la caja.");
@@ -1726,7 +1765,12 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             return;
         }
 
-        if (!isSinEtiqueta && !isBioflex && !isDestiny && !consecutivoManualInput) {
+        if (!isSinEtiqueta && isQuality && !selectedQualityCaja?.trazabilidad) {
+            setRegisterError("Seleccione una caja disponible de Quality antes de registrar.");
+            return;
+        }
+
+        if (!isSinEtiqueta && !isBioflex && !isDestiny && !isQuality && !consecutivoManualInput) {
             setRegisterError("Ingrese el consecutivo manual para registrar la caja.");
             return;
         }
@@ -1787,19 +1831,23 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             }
         }
 
-        const tipoEtiqueta = isSinEtiqueta ? "SinEtiqueta" : isDestiny ? "Trazable" : currentVerificationType;
+        const tipoEtiqueta = isSinEtiqueta ? "SinEtiqueta" : isDestiny ? "Trazable" : isQuality ? "Trazable" : currentVerificationType;
         const trazabilidadPayload = isSinEtiqueta
             ? null
             : isBioflex
             ? trazabilidadInput
             : isDestiny
               ? selectedDestinyCaja?.trazabilidad ?? null
-              : null;
+              : isQuality
+                ? selectedQualityCaja?.trazabilidad ?? null
+                : null;
         const consecutivoManualPayload = isSinEtiqueta
             ? null
             : isBioflex || isDestiny
               ? 0
-              : Number(consecutivoManualInput);
+              : isQuality
+                ? 0
+                : Number(consecutivoManualInput);
         const usuario = getRequiredCurrentUserName();
 
         const payload: Record<string, any> = {
@@ -1885,6 +1933,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             if (isDestiny) {
                 fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""), { silent: true });
             }
+            if (isQuality) {
+                setQualityCajasRefreshKey((key) => key + 1);
+            }
 
             if ((tieneDefectosInput || isSinEtiqueta) && data?.ultimoDetalleId) {
                 setEvidenceTargetId(Number(data.ultimoDetalleId));
@@ -1956,6 +2007,9 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
             fetchDashboardData();
             if (currentVerificationType === "DESTINY") {
                 fetchDestinyCajasDisponibles(String(dashboardData?.loteOrden ?? ""), { silent: true });
+            }
+            if (currentVerificationType === "QUALITY") {
+                setQualityCajasRefreshKey((key) => key + 1);
             }
         } catch (err: any) {
             setRegisterError(err.message || "Error al registrar retrabajo.");
@@ -3118,6 +3172,15 @@ export function VerificationDetail({ verificationId }: VerificationDetailProps) 
                                         </div>
                                     )}
                                 </div>
+                            ) : currentVerificationType === "QUALITY" ? (
+                                <QualityCajasSelector
+                                    verificationId={verifiedIdNumber}
+                                    orden={String(dashboardData?.loteOrden ?? "")}
+                                    selectedCaja={selectedQualityCaja}
+                                    onSelect={handleQualityCajaSelect}
+                                    disabled={isRegisteringScan}
+                                    refreshKey={qualityCajasRefreshKey}
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-2">
